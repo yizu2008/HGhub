@@ -4,7 +4,7 @@
 // libmpv-ios 项目的包，不在 MPVKit 里。所以这里直接调 libmpv 的 C API，
 // 渲染走 MPVKit Demo 同款：CAMetalLayer +
 // vo=gpu-next + gpu-api=vulkan + gpu-context=moltenvk，
-// hwdec=videotoolbox（H.264/HEVC 硬解；AV1 等走 dav1d 软解）。
+// hwdec=no（v0.0.140 诊断：关硬解纯软解试播，之前是 videotoolbox）。
 // 钉的版本见 src-tauri/ios/Package.swift（MPVKit 0.40.0-xcode exact，
 // iOS 13.0 底线；0.41.0 起要 iOS 14.0，1.x 起要 iOS 15.0）。
 // 详见 docs/developers/native-players.md。
@@ -294,18 +294,20 @@ final class MPVEngine: NSObject, NativePlayerEngine {
     api.setOptionString(handle, "vo", "gpu-next")
     api.setOptionString(handle, "gpu-api", "vulkan")
     api.setOptionString(handle, "gpu-context", "moltenvk")
-    api.setOptionString(handle, "hwdec", "videotoolbox")
+    // 诊断（v0.0.140）：纯软解试播——关掉硬解，看《疯狂魔幻西哥》
+    // 原画能不能播。UZN 的 mpv（0.41.0 系）能播同一文件，我们的
+    // mpv（0.40.0 + videotoolbox 先硬解）播不了；先排除硬解接手
+    // 卡住不回落这个可能。不是最终产品形态，验完再定怎么修。
+    api.setOptionString(handle, "hwdec", "no")
     api.setOptionString(handle, "subs-match-os-language", "yes")
     api.setOptionString(handle, "subs-fallback", "yes")
     api.setOptionString(handle, "video-rotate", "no")
-    // 诊断（v0.0.135 起）：mpv 日志常开 info 级、经事件写进运行日志。
-    // 正式版以前是 "no"，黑画面只能靠猜；133/134 两轮都只剩声音没
-    // 画面，原因只能看 mpv 自己的报错（VO/swapchain 那几行）。
-    #if DEBUG
+    // 诊断（v0.0.135 起）：mpv 日志常开、经事件写进运行日志。正式版
+    // 以前是 "no"，黑画面只能靠猜；133/134 两轮都只剩声音没画面，
+    // 原因只能看 mpv 自己的报错（VO/swapchain 那几行）。v0.0.140
+    // 起正式版也开 debug 级：139 真机测时 info 级 0 行，解复用器
+    // 探流、选解码器那几行只在 debug 级才有，播不了时没它们没法定位。
     api.requestLogMessages(handle, "debug")
-    #else
-    api.requestLogMessages(handle, "info")
-    #endif
     initResult = api.initialize(handle)
     guard initResult >= 0 else {
       api.terminateDestroy(handle)
@@ -464,7 +466,8 @@ final class MPVEngine: NSObject, NativePlayerEngine {
 
   /// mpv 事件排空（wakeup 回调进来后在后台队列跑）：只处理与本引擎
   /// 有关的几件——dwidth/dheight 变了记分辨率；播完/播错发事件；
-  /// mpv 自己的日志（info 级）经 .log 发回前端写进运行日志。
+  /// mpv 自己的日志（debug 级，v0.0.140 起正式版也开）经 .log 发回
+  /// 前端写进运行日志。
   /// 其它事件直接丢掉，不打印。
   private func readEvents() {
     eventQueue.async { [weak self] in
