@@ -154,11 +154,14 @@ pill（v0.0.22 删掉），入口只在更多菜单里。
   真机播放（v0.0.133/134 已测）：mpv 能加载、能解码、有声、进度走，
   但画面全黑。133 先 initialize 后 present，134 改先 present 后
   initialize，都一样黑——初始化顺序不是原因（或不是唯一原因）。
-  诊断（v0.0.135 起）：`MPVEngine` 常开 mpv 日志 info 级
-  （`mpv_request_log_messages(handle, "info")`），`MPV_EVENT_LOG_MESSAGE`
-  经 `native-player-log` 事件发回前端、写进运行日志（`[mpv] 前缀:
-  内容`）。mpv 自己的 VO/swapchain 报错只有这里能看到；黑画面先看
-  运行日志里的这几行，再定下一步。
+  诊断（v0.0.135 起，v0.0.137 起改走 state 命令）：`MPVEngine` 常开
+  mpv 日志 info 级（`mpv_request_log_messages(handle, "info")`）。
+  135/136 曾把 `MPV_EVENT_LOG_MESSAGE` 经 `native-player-log` 事件发
+  回前端、写进运行日志（`[mpv] 前缀: 内容`），但 136 真机证实这条
+  事件到不了前端；137 起改走 `native_player_state` 回包里的
+  `mpvLogCount` / `mpvLogLines` / `mpvEventLoopAlive`，前端轮询读出
+  来写进运行日志（见下）。mpv 自己的 VO/swapchain 报错只有这里能看到；
+  黑画面先看运行日志里的这几行，再定下一步。
   135 真机（2026-11-27）：播了 12 秒，`[mpv]` 行一行都没出来——
   日志链路本身在注册之后断了，不是注册被拦。`addPluginListener`
   注册时有 camelCase fallback（先试下划线 `register_listener`，被
@@ -170,13 +173,20 @@ pill（v0.0.22 删掉），入口只在更多菜单里。
   码驼峰去比对 toml，查的是自洽，不是运行时真正调的名字，所以脚本
   PASS、真机拒。以后新增 dlsym 的 mpv_* 函数、新增监听权限，都按
   运行时名（下划线）写。
-  事件循环诊断标记（v0.0.136 起）：`MPVEngine` 经同一条 `.log` 路
-  径发三行 `[diag]` 标记（前端写成 `[mpv] [diag] …`）：open 完成时
-  `mpv opened, wakeup set`、事件循环首轮排空时 `event loop alive,
-  first drain N events`、关闭时 `mpv closed, N log messages
-  received`。读法：只有 open 标记、没有 drain 标记 → wakeup 回调没
-  触发过；有 drain 标记、没有 `[mpv]` 行 → 循环在跑、mpv 没发日志；
-  三行全有且 N>0 → 链路通了，再看 `[mpv]` 行里的 VO 报错。
+  136 真机（2026-11-27，pid 11449）：播了 24 秒，三行 `[diag]` 一行都没
+  出来、`[mpv]` 行也没有，但退出时 5 连 `[reject] remove_listener`
+  消失了——ACL 修法生效。open 标记是同步发的、不经过事件循环，它都没
+  来，所以不是事件循环的问题：**`.log` 事件本身到不了前端**，事件循环
+  假说收回（`.time` 的进度条是 Swift 侧 UI，不能证明事件到了前端）。
+  诊断改走 state 命令（v0.0.137 起）：`MPVEngine` 把 mpv 日志留最近
+  30 行 + 总行数 + 事件循环是否跑起来过，放进 `NativePlayerState`
+  的 `mpvLogCount` / `mpvLogLines` / `mpvEventLoopAlive`；前端
+  （`Feed.tsx` 的 `startMpvDiagPoll`）只在 mpv 播放时每秒轮询
+  `native_player_state`，把新增行写进运行日志（`[mpv] 前缀: 内容`），
+  事件循环活了写一行 `[mpv] [diag] event loop alive`，关闭时写一行
+  `[mpv] [diag] mpv closed, N log lines received`。读法：轮询到
+  `mpvEventLoopAlive` 为真 → 事件循环在跑；`[mpv]` 行里找 VO 报错；
+  若一行 `[mpv]` 都没有且计数恒为 0 → mpv 没发日志或 state 通道本身有问题。
 
 ## Mac 验证（按顺序）
 

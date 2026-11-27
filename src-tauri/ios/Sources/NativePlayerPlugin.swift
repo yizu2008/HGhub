@@ -65,6 +65,11 @@ struct NativePlayerState: Encodable {
   /// 当前视频原始分辨率（像素）；0 表示未知。
   var videoWidth: Int
   var videoHeight: Int
+  /// mpv 诊断（v0.0.137 起）：.log 事件到不了前端，改走 state 命令。
+  /// 最近 30 行 mpv 日志 + 总行数 + 事件循环是否跑起来过；其它引擎恒为默认。
+  var mpvLogCount: Int = 0
+  var mpvLogLines: [String] = []
+  var mpvEventLoopAlive: Bool = false
 }
 
 // MARK: - 引擎事件（经 trigger 发回前端，见前端 nativePlayer.ts）

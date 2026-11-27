@@ -50,6 +50,15 @@ pub struct NativePlayerState {
     /// 当前视频原始分辨率（像素）；0 表示未知（引擎未报或未加载出视频轨）。
     pub video_width: u32,
     pub video_height: u32,
+    /// mpv 诊断（v0.0.137 起）：.log 事件到不了前端，改走 state 命令。
+    /// 最近 30 行 mpv 日志 + 总行数 + 事件循环是否跑起来过；其它引擎为默认。
+    /// 缺省 default——旧版 Swift 回包没有这些键时也不报错。
+    #[serde(default)]
+    pub mpv_log_count: u64,
+    #[serde(default)]
+    pub mpv_log_lines: Vec<String>,
+    #[serde(default)]
+    pub mpv_event_loop_alive: bool,
 }
 
 /// 向 Swift 插件注册 "native-player"。setup 闭包与 native_player.rs 在同一
@@ -271,15 +280,23 @@ mod tests {
             "volume": 1.0,
             "muted": false,
             "videoWidth": 1280,
-            "videoHeight": 720
+            "videoHeight": 720,
+            "mpvLogCount": 3,
+            "mpvLogLines": ["vo/gpu: 1920x800", "vo/gpu: done"],
+            "mpvEventLoopAlive": true
         });
         let state: NativePlayerState =
             serde_json::from_value(from_swift).expect("Swift 回包应按驼峰键解出");
         assert_eq!(state.video_width, 1280);
         assert_eq!(state.video_height, 720);
+        assert_eq!(state.mpv_log_count, 3);
+        assert_eq!(state.mpv_log_lines.len(), 2);
+        assert!(state.mpv_event_loop_alive);
         // 序列化方向也一样：前端 NativePlayerState 声明的是 videoWidth。
         let back = serde_json::to_value(&state).unwrap();
         assert_eq!(back["videoWidth"], 1280);
         assert!(back.get("video_width").is_none());
+        assert_eq!(back["mpvLogCount"], 3);
+        assert_eq!(back["mpvEventLoopAlive"], true);
     }
 }

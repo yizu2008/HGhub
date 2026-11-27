@@ -38,6 +38,10 @@ export interface NativePlayerState {
   /** 当前视频原始分辨率（像素）；0 表示未知。 */
   videoWidth: number;
   videoHeight: number;
+  /** mpv 诊断（v0.0.137 起）：最近 30 行 mpv 日志 + 总行数 + 事件循环是否跑起来过；其它引擎为默认。 */
+  mpvLogCount: number;
+  mpvLogLines: string[];
+  mpvEventLoopAlive: boolean;
 }
 
 export interface NativePlayerTimeEvent {

@@ -16,7 +16,7 @@ import PlaybackLock from "./PlaybackLock";
 import { registerBackHandler } from "../back";
 import { useVerticalSwipe } from './useVerticalSwipe';
 import type { PreparedMedia } from "../plugins/client";
-import { closeNativePlayer, clearLocalNativePlayback, isLocalNativePlayback, onNativePlayerClosed, onNativePlayerEnded, onNativePlayerError, onNativePlayerLog, onNativePlayerTime, openNativePlayer } from "../plugins/nativePlayer";
+import { closeNativePlayer, clearLocalNativePlayback, isLocalNativePlayback, nativePlayerState, onNativePlayerClosed, onNativePlayerEnded, onNativePlayerError, onNativePlayerLog, onNativePlayerTime, openNativePlayer, type NativePlayerState } from "../plugins/nativePlayer";
 import DownloadManager from "../plugins/DownloadManager";
 import { openInSenPlayer } from "../senplayer";
 import { playbackEngineFallbackChain, playbackEngineLabel, type PlaybackEngine } from "../plugins/playbackEngine";
@@ -467,6 +467,49 @@ export default function Feed({media, position, active=true, preparing=false, err
   const nativePosition = useRef(0);
   const nativeCallbacks = useRef({ onPosition, onEnded });
   nativeCallbacks.current = { onPosition, onEnded };
+  // mpv 诊断轮询（v0.0.137）：.log 事件到不了前端，改走 state 命令。
+  // 只在 mpv 播放时跑；每秒读一次 state，把新增的日志行写进运行日志。
+  // 引擎销毁后 state 回到默认（mpvLogCount 归零），轮询据此自停并写关闭汇总。
+  const mpvDiagTimerRef = useRef<number | null>(null);
+  const mpvLogSeenRef = useRef(0);
+  const mpvLoopLoggedRef = useRef(false);
+  const mpvClosedLoggedRef = useRef(false);
+  const flushMpvDiag = (s: NativePlayerState) => {
+    if (s.mpvEventLoopAlive && !mpvLoopLoggedRef.current) {
+      mpvLoopLoggedRef.current = true;
+      void invoke("debug_log", { msg: "[mpv] [diag] event loop alive" }).catch(() => {});
+    }
+    const fresh = s.mpvLogCount - mpvLogSeenRef.current;
+    if (fresh > 0) {
+      const lines = s.mpvLogLines.slice(-Math.min(fresh, s.mpvLogLines.length));
+      mpvLogSeenRef.current = s.mpvLogCount;
+      for (const line of lines) void invoke("debug_log", { msg: `[mpv] ${line}` }).catch(() => {});
+    }
+  };
+  const stopMpvDiagPoll = () => {
+    if (mpvDiagTimerRef.current !== null) { window.clearInterval(mpvDiagTimerRef.current); mpvDiagTimerRef.current = null; }
+  };
+  const finishMpvDiag = () => {
+    stopMpvDiagPoll();
+    if (!mpvClosedLoggedRef.current && mpvLogSeenRef.current > 0) {
+      mpvClosedLoggedRef.current = true;
+      void invoke("debug_log", { msg: `[mpv] [diag] mpv closed, ${mpvLogSeenRef.current} log lines received` }).catch(() => {});
+    }
+  };
+  const pollMpvDiagOnce = () => {
+    void nativePlayerState().then((s) => {
+      if (mpvLogSeenRef.current > 0 && s.mpvLogCount === 0) { finishMpvDiag(); return; }
+      flushMpvDiag(s);
+    }).catch(() => {});
+  };
+  const startMpvDiagPoll = () => {
+    stopMpvDiagPoll();
+    mpvLogSeenRef.current = 0;
+    mpvLoopLoggedRef.current = false;
+    mpvClosedLoggedRef.current = false;
+    pollMpvDiagOnce();
+    mpvDiagTimerRef.current = window.setInterval(pollMpvDiagOnce, 1000);
+  };
   const fallbackToWebView = (position: number) => {
     nativePosition.current = position;
     setTime(position);
@@ -485,11 +528,13 @@ export default function Feed({media, position, active=true, preparing=false, err
         toast(e.message || "原生播放失败，已回落 WebView"); fallbackToWebView(nativePosition.current);
       }),
       onNativePlayerClosed((e) => {
+        finishMpvDiag();
         if (isLocalNativePlayback()) { clearLocalNativePlayback(); return; }
         fallbackToWebView(e.position);
       }),
-      // mpv 诊断日志（v0.0.135 起）：mpv 自己的日志行写进运行日志，
-      // 只在 mpv 播放时有；其它引擎不发这个事件。
+      // mpv 诊断日志（v0.0.135 起，v0.0.137 起已停用）：136 真机证实 .log
+      // 事件到不了前端，诊断改走 state 轮询（见 startMpvDiagPoll）；此监听
+      // 保留，事件本身不再触发。
       onNativePlayerLog((e) => { void invoke("debug_log", { msg: `[mpv] ${e.message}` }).catch(() => {}); }),
     ]).then((u) => { if (live) listeners = u; else u.forEach((l) => void l.unregister()); });
     return () => { live = false; listeners.forEach((l) => void l.unregister()); };
@@ -502,6 +547,7 @@ export default function Feed({media, position, active=true, preparing=false, err
       try {
         await openNativePlayer({ engine, url: media.url, sessionId: media.sessionId, position: time, rate, volume, muted, title });
         videoRef.current?.pause();
+        if (engine === "mpv") startMpvDiagPoll();
         return;
       } catch (error) {
         lastError = error instanceof Error ? error.message : String(error);
@@ -509,7 +555,7 @@ export default function Feed({media, position, active=true, preparing=false, err
     }
     toast(lastError || "原生播放器不可用");
   };
-  useEffect(() => () => { void closeNativePlayer().catch(() => {}); }, []);
+  useEffect(() => () => { stopMpvDiagPoll(); void closeNativePlayer().catch(() => {}); }, []);
   useEffect(()=>{setTime(position);setDuration(0);setErr("");setZoom({scale:1,x:0,y:0,gesturing:false});},[playKey]);
   useEffect(()=>()=>{clearTapTimer();if(activeRef.current){store.setClean(false);store.setFs(false);void setMobileOrientation(false).catch(()=>{});}},[]);
   useEffect(()=>{videoRef.current?.rate(effRate);},[effRate,playKey]);
