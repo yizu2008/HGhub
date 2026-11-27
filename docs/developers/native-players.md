@@ -187,6 +187,16 @@ pill（v0.0.22 删掉），入口只在更多菜单里。
   `[mpv] [diag] mpv closed, N log lines received`。读法：轮询到
   `mpvEventLoopAlive` 为真 → 事件循环在跑；`[mpv]` 行里找 VO 报错；
   若一行 `[mpv]` 都没有且计数恒为 0 → mpv 没发日志或 state 通道本身有问题。
+  137 真机（2026-11-27，pid 11698，版本号已确认 0.0.137）：getDetail +
+  resolvePlayback 完成，随后 23 秒零行——`[mpv]`、`[diag]` 一行都没出，
+  轮询静默失败，分不清是轮询没跑、state 被拒还是循环真死。另：同次测试
+  播完闪退一次（无 `[panic]` 行，pid 11710 重启），与 18:56:53 的 tao
+  AppState 崩溃（第 6 次）是两回事。教训：轮询把失败静默吞了（`.catch(() => {})`），
+  state 命令全 App 只有轮询在调，真机上从没走通过。
+  诊断可见性（v0.0.138 起）：轮询第一次成功写一行
+  `[mpv] [diag] state poll ok, count=N, loopAlive=<bool>`，第一次失败写一行
+  `[mpv] [diag] state invoke failed: <err>`；`openNative` 成功时写一行
+  `[diag] native player opened, engine=<engine>`，先分清 mpv 到底打开没有。
 
 ## Mac 验证（按顺序）
 

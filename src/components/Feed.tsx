@@ -470,10 +470,14 @@ export default function Feed({media, position, active=true, preparing=false, err
   // mpv 诊断轮询（v0.0.137）：.log 事件到不了前端，改走 state 命令。
   // 只在 mpv 播放时跑；每秒读一次 state，把新增的日志行写进运行日志。
   // 引擎销毁后 state 回到默认（mpvLogCount 归零），轮询据此自停并写关闭汇总。
+  // v0.0.138：137 真机 23 秒零输出，分不清是轮询没跑、state 被拒还是循环真死，
+  // 所以第一次成功/失败都各写一行可见标记（见 pollMpvDiagOnce）。
   const mpvDiagTimerRef = useRef<number | null>(null);
   const mpvLogSeenRef = useRef(0);
   const mpvLoopLoggedRef = useRef(false);
   const mpvClosedLoggedRef = useRef(false);
+  const mpvPollOkLoggedRef = useRef(false);
+  const mpvPollFailLoggedRef = useRef(false);
   const flushMpvDiag = (s: NativePlayerState) => {
     if (s.mpvEventLoopAlive && !mpvLoopLoggedRef.current) {
       mpvLoopLoggedRef.current = true;
@@ -498,15 +502,26 @@ export default function Feed({media, position, active=true, preparing=false, err
   };
   const pollMpvDiagOnce = () => {
     void nativePlayerState().then((s) => {
+      if (!mpvPollOkLoggedRef.current) {
+        mpvPollOkLoggedRef.current = true;
+        void invoke("debug_log", { msg: `[mpv] [diag] state poll ok, count=${s.mpvLogCount}, loopAlive=${s.mpvEventLoopAlive}` }).catch(() => {});
+      }
       if (mpvLogSeenRef.current > 0 && s.mpvLogCount === 0) { finishMpvDiag(); return; }
       flushMpvDiag(s);
-    }).catch(() => {});
+    }).catch((e) => {
+      if (!mpvPollFailLoggedRef.current) {
+        mpvPollFailLoggedRef.current = true;
+        void invoke("debug_log", { msg: `[mpv] [diag] state invoke failed: ${e instanceof Error ? e.message : String(e)}` }).catch(() => {});
+      }
+    });
   };
   const startMpvDiagPoll = () => {
     stopMpvDiagPoll();
     mpvLogSeenRef.current = 0;
     mpvLoopLoggedRef.current = false;
     mpvClosedLoggedRef.current = false;
+    mpvPollOkLoggedRef.current = false;
+    mpvPollFailLoggedRef.current = false;
     pollMpvDiagOnce();
     mpvDiagTimerRef.current = window.setInterval(pollMpvDiagOnce, 1000);
   };
@@ -547,6 +562,9 @@ export default function Feed({media, position, active=true, preparing=false, err
       try {
         await openNativePlayer({ engine, url: media.url, sessionId: media.sessionId, position: time, rate, volume, muted, title });
         videoRef.current?.pause();
+        // 诊断（v0.0.138）：写清到底哪个引擎打开了，免得轮询没输出时分不清
+        // 是 mpv 没打开（回落到别的引擎）还是 mpv 打开了但诊断没出来。
+        void invoke("debug_log", { msg: `[diag] native player opened, engine=${engine}` }).catch(() => {});
         if (engine === "mpv") startMpvDiagPoll();
         return;
       } catch (error) {
