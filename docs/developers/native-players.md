@@ -159,6 +159,24 @@ pill（v0.0.22 删掉），入口只在更多菜单里。
   经 `native-player-log` 事件发回前端、写进运行日志（`[mpv] 前缀:
   内容`）。mpv 自己的 VO/swapchain 报错只有这里能看到；黑画面先看
   运行日志里的这几行，再定下一步。
+  135 真机（2026-11-27）：播了 12 秒，`[mpv]` 行一行都没出来——
+  日志链路本身在注册之后断了，不是注册被拦。`addPluginListener`
+  注册时有 camelCase fallback（先试下划线 `register_listener`，被
+  拒改试驼峰 `registerListener`，权限文件里写的正是驼峰），所以注
+  册成功；`unregister()` 没有 fallback，只调下划线，所以注销被拒。
+  ACL 修法（v0.0.136）：两处 toml 的 `commands.allow` 改下划线
+  （`["register_listener"]` / `["remove_listener"]`），`default.json`
+  不用动；`scripts/check-acl.mjs` 也改成下划线期望串——它以前硬编
+  码驼峰去比对 toml，查的是自洽，不是运行时真正调的名字，所以脚本
+  PASS、真机拒。以后新增 dlsym 的 mpv_* 函数、新增监听权限，都按
+  运行时名（下划线）写。
+  事件循环诊断标记（v0.0.136 起）：`MPVEngine` 经同一条 `.log` 路
+  径发三行 `[diag]` 标记（前端写成 `[mpv] [diag] …`）：open 完成时
+  `mpv opened, wakeup set`、事件循环首轮排空时 `event loop alive,
+  first drain N events`、关闭时 `mpv closed, N log messages
+  received`。读法：只有 open 标记、没有 drain 标记 → wakeup 回调没
+  触发过；有 drain 标记、没有 `[mpv]` 行 → 循环在跑、mpv 没发日志；
+  三行全有且 N>0 → 链路通了，再看 `[mpv]` 行里的 VO 报错。
 
 ## Mac 验证（按顺序）
 

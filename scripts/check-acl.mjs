@@ -111,7 +111,11 @@ for (const file of walk(srcDir, [])) {
 // build.rs 的 InlinedPlugin 生成 manifest）；核心插件 app 的定义在
 // Tauri 自带权限里，不在这里查。
 function pluginPermissionDefined(plugin, perm) {
-  const cmd = perm === "allow-register-listener" ? "registerListener" : "removeListener";
+  // 注意：这里比对的必须是运行时真正调的命令名（下划线）。Tauri 实际
+  // 调 plugin:<name>|register_listener / remove_listener；JS 库的
+  // addPluginListener 注册时有 camelCase fallback 才没全断，但注销没有。
+  // 权限文件里写驼峰就会出现“检查 PASS、真机拒”（v0.0.135 实测）。
+  const cmd = perm === "allow-register-listener" ? "register_listener" : "remove_listener";
   let text;
   try {
     text = readFileSync(
@@ -129,7 +133,7 @@ function pluginPermissionDefined(plugin, perm) {
 
 function listenerPermission(plugin, cmd) {
   const short =
-    cmd === "registerListener" ? "allow-register-listener" : "allow-remove-listener";
+    cmd === "register_listener" ? "allow-register-listener" : "allow-remove-listener";
   return plugin === "app" ? `core:app:${short}` : `${plugin}:${short}`;
 }
 
@@ -160,10 +164,10 @@ for (const [cmd, where] of [...commands.entries()].sort()) {
 
 const listenerMissing = [];
 for (const [plugin, where] of [...listeners.entries()].sort()) {
-  for (const cmd of ["registerListener", "removeListener"]) {
+  for (const cmd of ["register_listener", "remove_listener"]) {
     const perm = listenerPermission(plugin, cmd);
     const short =
-      cmd === "registerListener" ? "allow-register-listener" : "allow-remove-listener";
+      cmd === "register_listener" ? "allow-register-listener" : "allow-remove-listener";
     // app 是核心插件：core:default 已含它的 register/remove listener 默认权限。
     const inCap = allowed.has(perm) || (plugin === "app" && allowed.has("core:default"));
     const inDef = plugin === "app" || pluginPermissionDefined(plugin, short);

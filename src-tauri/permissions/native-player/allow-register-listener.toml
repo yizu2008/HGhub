@@ -3,4 +3,4 @@
 [[permission]]
 identifier = "allow-register-listener"
 description = "Enables the registerListener command without any pre-configured scope."
-commands.allow = ["registerListener"]
+commands.allow = ["register_listener"]

@@ -3,4 +3,4 @@
 [[permission]]
 identifier = "allow-remove-listener"
 description = "Enables the removeListener command without any pre-configured scope."
-commands.allow = ["removeListener"]
+commands.allow = ["remove_listener"]

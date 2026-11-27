@@ -191,6 +191,19 @@ final class MPVEngine: NSObject, NativePlayerEngine {
   private var videoW = 0
   private var videoH = 0
 
+  // 诊断（v0.0.136）：135 真机 12 秒播放零 [mpv] 行，事件循环是否跑起来
+  // 过、mpv 是否发了日志都看不见。三个标记经 .log 事件写进运行日志，
+  // 与 [mpv] 行走同一条路：open 标记、首轮排空标记、关闭时日志行计数。
+  private var didDiagFirstDrain = false
+  private var logMessageCount = 0
+
+  /// 诊断标记：经 .log 事件转发，前端写进运行日志为 “[mpv] [diag] …”。
+  /// 调用方须在主队列上（open/close 本来就在主队列；readEvents 里用
+  /// DispatchQueue.main.async 包一层，与现有的 [mpv] 行转发一致）。
+  private func diagLog(_ message: String) {
+    eventHandler?(.log("[diag] \(message)"))
+  }
+
   /// 分辨率：dwidth/dheight（mpv 实际显示尺寸），没拿到就报未知（.zero）。
   var videoSize: CGSize { CGSize(width: videoW, height: videoH) }
 
@@ -310,6 +323,8 @@ final class MPVEngine: NSObject, NativePlayerEngine {
     setFlag(handle, "pause", false)
     didFireEnded = false
     didFireError = false
+    didDiagFirstDrain = false
+    logMessageCount = 0
     timer?.invalidate()
     timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
       guard let self = self else { return }
@@ -320,6 +335,7 @@ final class MPVEngine: NSObject, NativePlayerEngine {
         self.eventHandler?(.ended)
       }
     }
+    diagLog("mpv opened, wakeup set")
     completion(.success(currentState))
   }
 
@@ -352,6 +368,7 @@ final class MPVEngine: NSObject, NativePlayerEngine {
   }
 
   func close() {
+    diagLog("mpv closed, \(logMessageCount) log messages received")
     timer?.invalidate()
     timer = nil
     // 先把引用清掉再销毁：后台事件循环每次循环都重读 self.mpv，
@@ -370,6 +387,8 @@ final class MPVEngine: NSObject, NativePlayerEngine {
     container = nil
     didFireEnded = false
     didFireError = false
+    didDiagFirstDrain = false
+    logMessageCount = 0
     videoW = 0
     videoH = 0
   }
@@ -427,15 +446,17 @@ final class MPVEngine: NSObject, NativePlayerEngine {
   private func readEvents() {
     eventQueue.async { [weak self] in
       guard let self = self, let api = self.api else { return }
+      var drained = 0
       while let handle = self.mpv {
         guard let rawEvent = api.waitEvent(handle, 0) else { break }
         let event = rawEvent.assumingMemoryBound(to: MPVEvent.self)
         if event.pointee.event_id == MPV_EVENT_NONE { break }
+        drained += 1
         switch event.pointee.event_id {
         case MPV_EVENT_LOG_MESSAGE:
           guard let logMsg = UnsafePointer<MPVEventLogMessage>(OpaquePointer(event.pointee.data))?.pointee else { continue }
           let line = "\(String(cString: logMsg.prefix)): \(String(cString: logMsg.text).trimmingCharacters(in: .whitespacesAndNewlines))"
-          DispatchQueue.main.async { self.eventHandler?(.log(line)) }
+          DispatchQueue.main.async { self.logMessageCount += 1; self.eventHandler?(.log(line)) }
         case MPV_EVENT_PROPERTY_CHANGE:
           guard let property = UnsafePointer<MPVEventProperty>(OpaquePointer(event.pointee.data))?.pointee else { continue }
           let name = String(cString: property.name)
@@ -460,6 +481,11 @@ final class MPVEngine: NSObject, NativePlayerEngine {
         default:
           break
         }
+      }
+      if drained > 0 && !didDiagFirstDrain {
+        didDiagFirstDrain = true
+        let n = drained
+        DispatchQueue.main.async { self.diagLog("event loop alive, first drain \(n) events") }
       }
     }
   }
