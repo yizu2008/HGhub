@@ -78,7 +78,7 @@ pill（v0.0.22 删掉），入口只在更多菜单里。
 | AVPlayer | H.264/HEVC + MP4/HLS | 系统自带，无许可证问题 | 零依赖，`AVPlayerViewController` 全屏 | 不吃 MKV/FLV/WebM/VP9/AV1，不支持 DASH，ASS 只能走 HLS 内嵌字幕 |
 | MDK | FFmpeg 底，格式宽，ASS 需可选 `ass.framework` | key 制：开源 / 非商业免费，找作者申请 key；无 key 且 SDK 过期时最后一帧可能出现二维码水印 | CocoaPods `pod 'mdk'` 或 SPM `swift-mdk` | key 要另外申请；`setDecoders` 目前配 `VT / FFmpeg / dav1d` |
 | KSPlayer | AVPlayer + FFmpeg，HDR / Dolby Vision / Atmos 好 | **默认 GPL-3.0，要求开源自家代码**；HGhub 是 PolyForm Noncommercial，**不能直接按 GPL 发行**；完整格式 / 全量 ASS / AV1 硬解 / FFmpeg 8.1 在付费 LGPL 版（联系 kingslay@icloud.com），免费 GPL 版是 FFmpeg 6.1.0 且功能受限 | SPM `kingslay/KSPlayer`，`KSOptions.secondPlayerType = KSMEPlayer.self` 切 FFmpeg 路 | 没拿到付费 LGPL 之前不要用它发正式包 |
-| mpv（libmpv） | 格式 / ASS 最强 | 选 MPVKit 的 LGPL 版；GPL 版含 Samba 等 GPL 组件，发行口径与 PolyForm Noncommercial 冲突 | 已接：`src-tauri/ios/Package.swift` 里 SPM `mpvkit/MPVKit` 钉 `0.40.0-xcode` exact（LGPL 版产品 `MPVKit`；0.40.0 本身的 Libuavs3d / Libuchardet 清单校验和已过期，CI 两次卡在校验和不匹配，-xcode 变体成套且那两个校验和已核对）。0.41.0 起最低 iOS 14.0，1.x 起 iOS 15.0，本包与应用目前都是 iOS 13.0 底线，升版要先定 iOS floor。MPVKit 只提供 libmpv/FFmpeg 的 XCFramework，没有 Swift 播放器类——引擎直接调 libmpv C API（`import Libmpv`），渲染走 Demo 同款 CAMetalLayer + gpu-next/vulkan/moltenvk + hwdec=videotoolbox | 最难编，包体最大；Metal 渲染在 mpv 里还是补丁支持，非官方正式支持 |
+| mpv（libmpv） | 格式 / ASS 最强 | 选 MPVKit 的 LGPL 版；GPL 版含 Samba 等 GPL 组件，发行口径与 PolyForm Noncommercial 冲突 | 已接：`src-tauri/ios/Package.swift` 里 SPM `mpvkit/MPVKit` 钉 `0.41.0` exact（LGPL 版产品 `MPVKit`；v0.0.141 起，之前是 `0.40.0-xcode`；0.41.0 没有 -xcode 变体，38 个产物与 0.40.0-xcode 同名同数，LGPL 闭包仍是 28 个）。0.41.0 起最低 iOS 14.0（本包与应用已随 141 升到 iOS 14.0 底线，macOS 11），1.x 起 iOS 15.0。MPVKit 只提供 libmpv/FFmpeg 的 XCFramework，没有 Swift 播放器类——引擎直接调 libmpv C API（`import Libmpv`），渲染走 Demo 同款 CAMetalLayer + gpu-next/vulkan/moltenvk + hwdec=videotoolbox | 最难编，包体最大；Metal 渲染在 mpv 里还是补丁支持，非官方正式支持 |
 
 当前实现状态：
 
@@ -89,7 +89,7 @@ pill（v0.0.22 删掉），入口只在更多菜单里。
   不留“能打开但播不了”的空实现。`#if` 分支里的方法名是按各家 README 所写，
   第一次在 Mac 上编时以接入的依赖版本为准在构建时校验（见下）。
 - **mpv 已接线（懒加载，真机已测、画面待修）**：
-  `Package.swift` 里 MPVKit `0.40.0-xcode` exact（LGPL 版产品 `MPVKit`），
+  `Package.swift` 里 MPVKit `0.41.0` exact（LGPL 版产品 `MPVKit`），
   `engines/MPVEngine.swift` 不再 `import Libmpv`，改在用户选 mpv 点播放
   时 `dlopen` + `dlsym`（见下）。调用的还是同一套 libmpv C API
   （`mpv_create` / `mpv_initialize` / `loadfile` / `seek` / `pause` /
@@ -120,12 +120,15 @@ pill（v0.0.22 删掉），入口只在更多菜单里。
   RTLD_GLOBAL`）并 dlsym 出 12 个 libmpv 函数（缺一个就整体失败，
   报 unavailable、播放链回落 AVPlayer/WebView）；不 dlclose，
   进程生命周期内常驻。主程序里没有任何 mpv 符号，启动与 126 完全
-  一致。libmpv 的常量与结构体布局按 MPVKit 0.40.0-xcode 的
+  一致。libmpv 的常量与结构体布局按 MPVKit 0.41.0 的
   `client.h` 在 Swift 里手写（`MPV_FORMAT_*` / `MPV_EVENT_*` /
   `MPV_END_FILE_REASON_*` / `mpv_event` / `mpv_event_property` /
-  `mpv_event_end_file`），改版先核对 client.h——0.40.0 里
-  `MPV_END_FILE_REASON_ERROR = 4`（不是 3），`mpv_event_end_file`
-  的 `playlist_entry_id` 是 int64_t（旧版是 const char*）。
+  `mpv_event_end_file`），改版先核对 client.h——0.41.0 与 0.40.0
+  的常量与这四个结构体已逐项比对过（API 2.5），完全一致；0.41.0
+  的头文件在上游改了位置（`libmpv/client.h` → `include/mpv/client.h`），
+  装好的路径仍是 `mpv/client.h`。`MPV_END_FILE_REASON_ERROR = 4`
+  （不是 3），`mpv_event_end_file` 的 `playlist_entry_id` 是
+  int64_t（旧版是 const char*）。
   例外是 MoltenVK：它是库型 XCFramework，切片里只有 `libMoltenVK.a`、
   没有 `.framework` 包，打 dylib 时直接传这个 .a。
   系统库：MPVKit 的 `_MPVKit` / `_FFmpeg` 目标在 `linkerSettings` 里
@@ -248,6 +251,17 @@ pill（v0.0.22 删掉），入口只在更多菜单里。
   纯软解能播，就是硬解接手卡住不回落的问题，再定修法（自动回落或加硬
   件加速开关）；若仍播不了，看 debug 日志卡在哪一步。vo 配置（gpu-next/
   vulkan/moltenvk）140 没改。
+  升版（v0.0.141 起）：MPVKit 0.40.0-xcode → 0.41.0 exact。0.41.0 没
+  有 -xcode 变体；38 个产物与 0.40.0-xcode 同名同数，LGPL 闭包仍是
+  28 个，`build.rs` 的清单与 `build-ios-unsigned.sh` 的链接表不用改，
+  只改框架 Info.plist 里的版本号（0.40.0 → 0.41.0）。iOS 底线 13 →
+  14、macOS 底线 10.15 → 11（0.41.0 的要求）；mpv 官方最新是 0.42.0
+  （2026-11-05），但 MPVKit 最新版（1.1.0-n9.0.2）里仍是 mpv 0.41.0，
+  0.41.0 是目前能升到的最新。141 只升版本：hwdec 恢复 videotoolbox，
+  日志保持 debug 级——140（0.40.0 纯软解）与 141（0.41.0 硬解）对照：
+  141 能播就是版本修好了硬解，141 不行而 140 行就是硬解配置的问题，
+  与版本无关。client.h 已核对：常量与四个结构体与 0.40.0 完全一致
+  （API 2.5），Swift 代码不用改。
 
 ## Mac 验证（按顺序）
 

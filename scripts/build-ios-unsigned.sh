@@ -201,9 +201,9 @@ cat > "$MPVKIT_TMP/MPVKit.framework/Info.plist" <<'PLIST'
 	<key>CFBundlePackageType</key>
 	<string>FMWK</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.40.0</string>
+	<string>0.41.0</string>
 	<key>CFBundleVersion</key>
-	<string>0.40.0</string>
+	<string>0.41.0</string>
 	<key>MinimumOSVersion</key>
 	<string>15.0</string>
 </dict>

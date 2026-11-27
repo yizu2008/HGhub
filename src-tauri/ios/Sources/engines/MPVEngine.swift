@@ -4,9 +4,11 @@
 // libmpv-ios 项目的包，不在 MPVKit 里。所以这里直接调 libmpv 的 C API，
 // 渲染走 MPVKit Demo 同款：CAMetalLayer +
 // vo=gpu-next + gpu-api=vulkan + gpu-context=moltenvk，
-// hwdec=no（v0.0.140 诊断：关硬解纯软解试播，之前是 videotoolbox）。
-// 钉的版本见 src-tauri/ios/Package.swift（MPVKit 0.40.0-xcode exact，
-// iOS 13.0 底线；0.41.0 起要 iOS 14.0，1.x 起要 iOS 15.0）。
+// hwdec=videotoolbox（H.264/HEVC 硬解；AV1 等走 dav1d 软解）。
+// v0.0.140 曾改 hwdec=no 纯软解试播，141 只升版本、硬解恢复，
+// 这样 140（0.40.0 纯软解）与 141（0.41.0 硬解）正好对照。
+// 钉的版本见 src-tauri/ios/Package.swift（MPVKit 0.41.0 exact，
+// iOS 14.0 底线；1.x 起要 iOS 15.0）。
 // 详见 docs/developers/native-players.md。
 //
 // 懒加载（v0.0.127）：MPVKit 不再静态链进主程序（v0.0.124/125 那样
@@ -15,31 +17,34 @@
 // 用户第一次选 mpv 点播放时才 dlopen + dlsym，加载失败就报
 // unavailable、播放链回落 AVPlayer/WebView，绝不 crash。主程序里
 // 没有任何 mpv 符号（不 `import Libmpv`），所以启动与 126 完全一致。
-// libmpv 的常量与结构体布局按 MPVKit 0.40.0-xcode 的 client.h 手写
+// libmpv 的常量与结构体布局按 MPVKit 0.41.0 的 client.h 手写
 // （MPV_FORMAT_* / MPV_EVENT_* / MPV_END_FILE_REASON_* / mpv_event /
 // mpv_event_property / mpv_event_end_file），错一个字段就内存错乱，
-// 改版先核对 client.h。
+// 改版先核对 client.h。0.41.0 与 0.40.0 的常量与这四个结构体已逐项
+// 比对过（API 2.5），完全一致；0.41.0 的头文件在上游改了位置
+// （libmpv/client.h → include/mpv/client.h），装好的路径仍是
+// mpv/client.h，代码不用改。
 
 import UIKit
 
-/// libmpv 常量（client.h，mpv 0.40.0）：MPV_FORMAT_*。
+/// libmpv 常量（client.h，mpv 0.41.0）：MPV_FORMAT_*。
 private let MPV_FORMAT_FLAG: Int32 = 3
 private let MPV_FORMAT_INT64: Int32 = 4
 private let MPV_FORMAT_DOUBLE: Int32 = 5
 
-/// libmpv 常量（client.h，mpv 0.40.0）：MPV_EVENT_*。
+/// libmpv 常量（client.h，mpv 0.41.0）：MPV_EVENT_*。
 private let MPV_EVENT_NONE: Int32 = 0
 private let MPV_EVENT_SHUTDOWN: Int32 = 1
 private let MPV_EVENT_LOG_MESSAGE: Int32 = 2
 private let MPV_EVENT_END_FILE: Int32 = 7
 private let MPV_EVENT_PROPERTY_CHANGE: Int32 = 22
 
-/// libmpv 常量（client.h，mpv 0.40.0）：MPV_END_FILE_REASON_*。
-/// 注意 0.40.0 里 ERROR = 4（不是 3），STOP = 2，QUIT = 3，REDIRECT = 5。
+/// libmpv 常量（client.h，mpv 0.41.0）：MPV_END_FILE_REASON_*。
+/// 注意 0.41.0 里 ERROR = 4（不是 3），STOP = 2，QUIT = 3，REDIRECT = 5。
 private let MPV_END_FILE_REASON_EOF: Int32 = 0
 private let MPV_END_FILE_REASON_ERROR: Int32 = 4
 
-/// libmpv 事件结构（client.h，mpv 0.40.0）：mpv_event。
+/// libmpv 事件结构（client.h，mpv 0.41.0）：mpv_event。
 /// 字段顺序与类型必须与 C 完全一致：event_id(int)、error(int)、
 /// reply_userdata(uint64_t)、data(void*)。
 private struct MPVEvent {
@@ -49,7 +54,7 @@ private struct MPVEvent {
   var data: UnsafeMutableRawPointer?
 }
 
-/// libmpv 事件结构（client.h，mpv 0.40.0）：mpv_event_property。
+/// libmpv 事件结构（client.h，mpv 0.41.0）：mpv_event_property。
 /// 字段：name(const char*)、format(mpv_format/int)、data(void*)。
 private struct MPVEventProperty {
   var name: UnsafePointer<CChar>!
@@ -57,7 +62,7 @@ private struct MPVEventProperty {
   var data: UnsafeMutableRawPointer?
 }
 
-/// libmpv 事件结构（client.h，mpv 0.40.0）：mpv_event_log_message。
+/// libmpv 事件结构（client.h，mpv 0.41.0）：mpv_event_log_message。
 /// 字段：prefix(const char*)、level(const char*)、text(const char*)、
 /// log_level(mpv_log_level/int)。text 自带一个换行，转发前去掉。
 private struct MPVEventLogMessage {
@@ -67,7 +72,7 @@ private struct MPVEventLogMessage {
   var log_level: Int32
 }
 
-/// libmpv 事件结构（client.h，mpv 0.40.0）：mpv_event_end_file。
+/// libmpv 事件结构（client.h，mpv 0.41.0）：mpv_event_end_file。
 /// 字段：reason(mpv_end_file_reason/int)、error(int)、
 /// playlist_entry_id(int64_t)、playlist_insert_id(int64_t)、
 /// playlist_insert_num_entries(int)。注意 playlist_entry_id 在
@@ -294,11 +299,10 @@ final class MPVEngine: NSObject, NativePlayerEngine {
     api.setOptionString(handle, "vo", "gpu-next")
     api.setOptionString(handle, "gpu-api", "vulkan")
     api.setOptionString(handle, "gpu-context", "moltenvk")
-    // 诊断（v0.0.140）：纯软解试播——关掉硬解，看《疯狂魔幻西哥》
-    // 原画能不能播。UZN 的 mpv（0.41.0 系）能播同一文件，我们的
-    // mpv（0.40.0 + videotoolbox 先硬解）播不了；先排除硬解接手
-    // 卡住不回落这个可能。不是最终产品形态，验完再定怎么修。
-    api.setOptionString(handle, "hwdec", "no")
+    // v0.0.141：只升版本，硬解恢复 videotoolbox——140（0.40.0 纯软解）
+    // 与 141（0.41.0 硬解）对照：141 能播就是版本修好了硬解，141
+    // 不行而 140 行就是硬解配置的问题，与版本无关。
+    api.setOptionString(handle, "hwdec", "videotoolbox")
     api.setOptionString(handle, "subs-match-os-language", "yes")
     api.setOptionString(handle, "subs-fallback", "yes")
     api.setOptionString(handle, "video-rotate", "no")

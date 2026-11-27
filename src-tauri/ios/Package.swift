@@ -19,12 +19,11 @@ import PackageDescription
 let package = Package(
   name: "NativePlugins",
   platforms: [
-    // macOS 底线 10.15：MPVKit 要求 macOS 10.15，10.13 下 SPM 直接
-    // 报错（见 v0.0.119 构建日志）；iOS 底线仍是 13，不动。
-    // v0.0.126 诊断版 MPVKit 已摘，10.15 先留着（无害），恢复 MPVKit
-    // 时仍要它。
-    .macOS(.v10_15),
-    .iOS(.v13),
+    // v0.0.141 起 MPVKit 0.41.0：它要求 macOS 11 / iOS 14（0.40.0
+    // 是 macOS 10.15 / iOS 13）。macOS 10.15 的旧要求见 v0.0.119
+    // 构建日志；iOS 14 底线是用户 2026-11-27 定的升版决定。
+    .macOS(.v11),
+    .iOS(.v14),
   ],
   products: [
     // Products define the executables and libraries a package produces, and make them visible to other packages.
@@ -37,12 +36,14 @@ let package = Package(
     .package(name: "Tauri", path: "../.tauri/tauri-api"),
     // mpv 软解（LGPL 版产品 `MPVKit`；GPL 版产品 `MPVKit-GPL` 含 Samba，
     // 与 HGhub 的 PolyForm Noncommercial 冲突，不要用）。
-    // 钉 0.40.0-xcode exact：0.40.0 的 Libuavs3d / Libuchardet 清单
-    // 校验和已过期（子仓库重发了 1.2.1 / 0.0.8 的包，清单没跟上；
-    // 实测 sha256 与 CI 算出的一致、与清单不符，重跑也一样失败）。
-    // -xcode 变体 38 个产物全是 -xcode 后缀、成套的，坏掉的那两个
-    // 校验和已核对无误；mpv 仍是 0.40.0，iOS 底线仍是 13。
-    // 0.41.0 起最低 iOS 14.0，1.x 起 iOS 15.0，升版要先定 iOS floor。
+    // 钉 0.41.0 exact（v0.0.141 起；之前是 0.40.0-xcode）：0.41.0
+    // 没有 -xcode 变体，38 个产物与 0.40.0-xcode 同名同数，LGPL
+    // 闭包仍是那 28 个（build.rs 的 MPVKIT_FRAMEWORKS 不用改）。
+    // 0.40.0 的 Libuavs3d / Libuchardet 清单校验和曾过期（子仓库
+    // 重发了包、清单没跟上），0.41.0 的清单待 CI 验证。1.x 起最低
+    // iOS 15.0，mpv 官方最新是 0.42.0（2026-11-05），但 MPVKit
+    // 最新版（1.1.0-n9.0.2）里仍是 mpv 0.41.0，0.41.0 是目前能
+    // 升到的最新。
     // 注意 MPVKit 只提供 libmpv/FFmpeg 的 XCFramework，没有 Swift
     // 播放器类——引擎直接调 libmpv C API（见 engines/MPVEngine.swift）。
     // v0.0.127 懒加载：这个依赖只让 SPM 把 XCFramework 下下来、供
@@ -52,7 +53,7 @@ let package = Package(
     // 静态链入后启动黑屏，126 摘掉就启动，已证实是它），所以
     // OTHER_LDFLAGS 里不再加 MPVKit 的 -framework；Swift 代码也不
     // 再 `import Libmpv`（改 dlopen + dlsym，见 MPVEngine.swift）。
-    .package(url: "https://github.com/mpvkit/MPVKit.git", exact: "0.40.0-xcode")
+    .package(url: "https://github.com/mpvkit/MPVKit.git", exact: "0.41.0")
   ],
   targets: [
     // Targets are the basic building blocks of a package. A target can define a module or a test suite.

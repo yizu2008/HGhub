@@ -110,9 +110,10 @@ fn link_ios_native_plugins() {
     // gen/apple/MPVKit/，由 build-ios-unsigned.sh 的 xcodebuild 参数
     // （FRAMEWORK_SEARCH_PATHS + OTHER_LDFLAGS）链进最终可执行文件。
     // XCFramework 里是静态库（ar archive），不用嵌进 .app，所以没有
-    // --install-app 步骤。28 个是 MPVKit 0.40.0-xcode 的 LGPL 产品
-    // `MPVKit` 的传递闭包（从它的 Package.swift 算出）；换 MPVKit
-    // 版本要重新算。只在 macOS host + iOS target 跑。
+    // --install-app 步骤。28 个是 MPVKit 0.41.0 的 LGPL 产品
+    // `MPVKit` 的传递闭包（从它的 Package.swift 算出；0.41.0 与
+    // 0.40.0-xcode 同名同数，清单不用改）；换 MPVKit 版本要重新算。
+    // 只在 macOS host + iOS target 跑。
     // v0.0.127 懒加载：MPVKit 28 个静态库只暂存、不链进主程序。
     // stage_mpvkit_frameworks 把 28 个产物的 ios-arm64 切片拷到
     // gen/apple/MPVKit/，build-ios-unsigned.sh 在 xcodebuild 之后
@@ -125,7 +126,7 @@ fn link_ios_native_plugins() {
     stage_mpvkit_frameworks(&manifest_dir);
 }
 
-/// MPVKit LGPL 产品 `MPVKit` 的传递闭包（0.40.0-xcode，28 个二进制目标）。
+/// MPVKit LGPL 产品 `MPVKit` 的传递闭包（0.41.0，28 个二进制目标）。
 /// 顺序是链接拓扑（被依赖的在后），build-ios-unsigned.sh 里按此顺序
 /// 传 -framework（同一组列两遍，防静态库循环依赖漏符号）。
 #[cfg(target_os = "macos")]
