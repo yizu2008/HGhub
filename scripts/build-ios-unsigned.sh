@@ -124,7 +124,11 @@ if [ "$DYLIB_COUNT" -ne 27 ]; then
 fi
 mkdir -p "$APP/Frameworks"
 for dylib in "$MPV_DYLIBS"/*.dylib; do
-  file "$dylib" | grep 'Mach-O.*arm64.*dynamically linked shared library' > /dev/null || {
+  # file 的词序在 Linux 与 macOS 上不一样（Linux：Mach-O 64-bit arm64
+  # dynamically linked shared library；macOS：Mach-O 64-bit dynamically
+  # linked shared library arm64），一个正则按顺序匹配会在 macOS 上
+  # 全挂，所以三个特征分开 grep，不依赖词序。
+  file "$dylib" | grep 'Mach-O' | grep 'arm64' | grep 'dynamically linked shared library' > /dev/null || {
     echo "mpv dylib 不是 arm64 Mach-O dylib：$dylib" >&2
     exit 1
   }
