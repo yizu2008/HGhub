@@ -19,9 +19,11 @@ import PackageDescription
 let package = Package(
   name: "NativePlugins",
   platforms: [
-    // v0.0.141 起 MPVKit 0.41.0：它要求 macOS 11 / iOS 14（0.40.0
-    // 是 macOS 10.15 / iOS 13）。macOS 10.15 的旧要求见 v0.0.119
-    // 构建日志；iOS 14 底线是用户 2026-11-27 定的升版决定。
+    // v0.0.141 起是 macOS 11 / iOS 14（当时 MPVKit 0.41.0 的要求）。
+    // v0.0.142 起不再用 MPVKit（改嵌原生 dylib，见
+    // src-tauri/ios/mpv-dylibs/README.md），底线保持 macOS 11 /
+    // iOS 14 不变——dylib 本身的 minOS 由构建方定，dlopen 失败时
+    // mpv 只报 unavailable、播放链回落，不影响启动。
     .macOS(.v11),
     .iOS(.v14),
   ],
@@ -34,26 +36,14 @@ let package = Package(
   ],
   dependencies: [
     .package(name: "Tauri", path: "../.tauri/tauri-api"),
-    // mpv 软解（LGPL 版产品 `MPVKit`；GPL 版产品 `MPVKit-GPL` 含 Samba，
-    // 与 HGhub 的 PolyForm Noncommercial 冲突，不要用）。
-    // 钉 0.41.0 exact（v0.0.141 起；之前是 0.40.0-xcode）：0.41.0
-    // 没有 -xcode 变体，38 个产物与 0.40.0-xcode 同名同数，LGPL
-    // 闭包仍是那 28 个（build.rs 的 MPVKIT_FRAMEWORKS 不用改）。
-    // 0.40.0 的 Libuavs3d / Libuchardet 清单校验和曾过期（子仓库
-    // 重发了包、清单没跟上），0.41.0 的清单待 CI 验证。1.x 起最低
-    // iOS 15.0，mpv 官方最新是 0.42.0（2026-11-05），但 MPVKit
-    // 最新版（1.1.0-n9.0.2）里仍是 mpv 0.41.0，0.41.0 是目前能
-    // 升到的最新。
-    // 注意 MPVKit 只提供 libmpv/FFmpeg 的 XCFramework，没有 Swift
-    // 播放器类——引擎直接调 libmpv C API（见 engines/MPVEngine.swift）。
-    // v0.0.127 懒加载：这个依赖只让 SPM 把 XCFramework 下下来、供
-    // build.rs 暂存到 gen/apple/MPVKit/，再由 build-ios-unsigned.sh
-    // 打成 MPVKit.framework 动态库、嵌进 .app/Frameworks/，选 mpv
-    // 播放时才 dlopen。主程序启动时完全不碰 MPVKit（v0.0.124/125
-    // 静态链入后启动黑屏，126 摘掉就启动，已证实是它），所以
-    // OTHER_LDFLAGS 里不再加 MPVKit 的 -framework；Swift 代码也不
-    // 再 `import Libmpv`（改 dlopen + dlsym，见 MPVEngine.swift）。
-    .package(url: "https://github.com/mpvkit/MPVKit.git", exact: "0.41.0")
+    // mpv 原生 dylib（v0.0.142 起，替代 MPVKit）：已 vendor 在
+    // src-tauri/ios/mpv-dylibs/（mpv 0.41.0 + FFmpeg 8.1-dev 一代，
+    // UZN 1.9.0 包里同款开源库），build-ios-unsigned.sh 在 xcodebuild
+    // 之后直接拷进 .app/Frameworks/，选 mpv 播放时才 dlopen。
+    // 这里不再声明 MPVKit 依赖，Swift 代码也不 `import Libmpv`
+    //（改 dlopen + dlsym，见 engines/MPVEngine.swift）。主程序启动
+    // 时完全不碰 mpv（v0.0.124/125 静态链入后启动黑屏，126 摘掉就
+    // 启动，已证实是它）。
   ],
   targets: [
     // Targets are the basic building blocks of a package. A target can define a module or a test suite.
@@ -62,7 +52,6 @@ let package = Package(
       name: "NativePlugins",
       dependencies: [
         .byName(name: "Tauri"),
-        .product(name: "MPVKit", package: "MPVKit"),
       ],
       path: "Sources")
   ]

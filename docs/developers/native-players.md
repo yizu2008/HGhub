@@ -78,7 +78,7 @@ pill（v0.0.22 删掉），入口只在更多菜单里。
 | AVPlayer | H.264/HEVC + MP4/HLS | 系统自带，无许可证问题 | 零依赖，`AVPlayerViewController` 全屏 | 不吃 MKV/FLV/WebM/VP9/AV1，不支持 DASH，ASS 只能走 HLS 内嵌字幕 |
 | MDK | FFmpeg 底，格式宽，ASS 需可选 `ass.framework` | key 制：开源 / 非商业免费，找作者申请 key；无 key 且 SDK 过期时最后一帧可能出现二维码水印 | CocoaPods `pod 'mdk'` 或 SPM `swift-mdk` | key 要另外申请；`setDecoders` 目前配 `VT / FFmpeg / dav1d` |
 | KSPlayer | AVPlayer + FFmpeg，HDR / Dolby Vision / Atmos 好 | **默认 GPL-3.0，要求开源自家代码**；HGhub 是 PolyForm Noncommercial，**不能直接按 GPL 发行**；完整格式 / 全量 ASS / AV1 硬解 / FFmpeg 8.1 在付费 LGPL 版（联系 kingslay@icloud.com），免费 GPL 版是 FFmpeg 6.1.0 且功能受限 | SPM `kingslay/KSPlayer`，`KSOptions.secondPlayerType = KSMEPlayer.self` 切 FFmpeg 路 | 没拿到付费 LGPL 之前不要用它发正式包 |
-| mpv（libmpv） | 格式 / ASS 最强 | 选 MPVKit 的 LGPL 版；GPL 版含 Samba 等 GPL 组件，发行口径与 PolyForm Noncommercial 冲突 | 已接：`src-tauri/ios/Package.swift` 里 SPM `mpvkit/MPVKit` 钉 `0.41.0` exact（LGPL 版产品 `MPVKit`；v0.0.141 起，之前是 `0.40.0-xcode`；0.41.0 没有 -xcode 变体，38 个产物与 0.40.0-xcode 同名同数，LGPL 闭包仍是 28 个）。0.41.0 起最低 iOS 14.0（本包与应用已随 141 升到 iOS 14.0 底线，macOS 11），1.x 起 iOS 15.0。MPVKit 只提供 libmpv/FFmpeg 的 XCFramework，没有 Swift 播放器类——引擎直接调 libmpv C API（`import Libmpv`），渲染走 Demo 同款 CAMetalLayer + gpu-next/vulkan/moltenvk + hwdec=videotoolbox | 最难编，包体最大；Metal 渲染在 mpv 里还是补丁支持，非官方正式支持 |
+| mpv（libmpv） | 格式 / ASS 最强 | libmpv 是 GPL-2.0+、FFmpeg 是 LGPL——与 MPVKit 时代同一批库的另一种打包，发行口径不变（见下）；不要用含 Samba 的 GPL 全量版 | 已接：原生 dylib（`src-tauri/ios/mpv-dylibs/`，mpv 0.41.0 + FFmpeg 8.1-dev 一代，27 个），v0.0.142 起替代 MPVKit。渲染走 libmpv render API + EAGLContext（OpenGL ES），vo=gpu-next + gpu-api=opengl + hwdec=videotoolbox（8 秒不出画面自动回退软解）。0.41.0 起最低 iOS 14.0（应用保持 iOS 14.0 底线，macOS 11） | 最难编，包体最大；render API 在 iOS 上要自己管 GL 上下文与 FBO |
 
 当前实现状态：
 
@@ -89,71 +89,75 @@ pill（v0.0.22 删掉），入口只在更多菜单里。
   不留“能打开但播不了”的空实现。`#if` 分支里的方法名是按各家 README 所写，
   第一次在 Mac 上编时以接入的依赖版本为准在构建时校验（见下）。
 - **mpv 已接线（懒加载，真机已测、画面待修）**：
-  `Package.swift` 里 MPVKit `0.41.0` exact（LGPL 版产品 `MPVKit`），
-  `engines/MPVEngine.swift` 不再 `import Libmpv`，改在用户选 mpv 点播放
-  时 `dlopen` + `dlsym`（见下）。调用的还是同一套 libmpv C API
-  （`mpv_create` / `mpv_initialize` / `loadfile` / `seek` / `pause` /
-  `speed` / `volume` / `time-pos` / `duration` / `dwidth` / `dheight`，
-  事件走 `mpv_set_wakeup_callback` + `mpv_wait_event` 排空），渲染是
-  Demo 同款 CAMetalLayer + gpu-next/vulkan/moltenvk。注意 MPVKit 包里
-  没有 `MPVPlayer` / `MPVGLView`（那是另一个 libmpv-ios 项目的包），
-  旧代码里按它们写的分支已经删掉。
-  懒加载（v0.0.127）：v0.0.124/125 把 MPVKit 28 个 LGPL 产物静态链进
-  主程序后启动黑屏（无 .ips、无 JetsamEvent），v0.0.126 摘掉就启动，
-  证实是它；机制未明（无静态初始化器、符号与链接库都查过无问题），
-  但实证已足够。所以 28 个产物不再进主程序：`src-tauri/build.rs`
-  只把 28 个产物的 ios-arm64 切片暂存到 `gen/apple/MPVKit/`，
-  `scripts/build-ios-unsigned.sh` 在 xcodebuild 之后用
-  `clang -dynamiclib` 把它们打成一个 `MPVKit.framework` 动态库
-  （普通静态库链接 + `-u` 指定 12 个入口符号——12 个 libmpv 函数
-  是 dlsym 动态调用的、链接时无引用，`-u` 让链接器把定义它们的
-  各目标文件拉进来，其余按引用传递拉入；不要用 `-Wl,-force_load`
-  逐个加，v0.0.131 就是这么挂的：FFmpeg 的 vulkan.o 编进了
-  Libavfilter/Libavcodec/Libavutil 三份（同一批 ff_vk_* 符号），
-  GnuTLS 也自带了 OpenSSL 的 aes/sha/gcm 汇编例程（与 Libcrypto
-  重复），force_load 全拉进来报 66 个重复符号；普通链接按先定义
-  者胜出，与 v0.0.124 静态链进主程序的成功方式一致；也不要用全局
-  `-all_load`），嵌进
-  `.app/Frameworks/`（与 NodeMobile/Python 同款位置，TrollStore
-  安装时做 fakesign）。`MPVEngine.swift` 在 open 入口才 dlopen
-  （全路径 `Frameworks/MPVKit.framework/MPVKit`，`RTLD_NOW |
-  RTLD_GLOBAL`）并 dlsym 出 12 个 libmpv 函数（缺一个就整体失败，
-  报 unavailable、播放链回落 AVPlayer/WebView）；不 dlclose，
-  进程生命周期内常驻。主程序里没有任何 mpv 符号，启动与 126 完全
-  一致。libmpv 的常量与结构体布局按 MPVKit 0.41.0 的
-  `client.h` 在 Swift 里手写（`MPV_FORMAT_*` / `MPV_EVENT_*` /
-  `MPV_END_FILE_REASON_*` / `mpv_event` / `mpv_event_property` /
-  `mpv_event_end_file`），改版先核对 client.h——0.41.0 与 0.40.0
-  的常量与这四个结构体已逐项比对过（API 2.5），完全一致；0.41.0
-  的头文件在上游改了位置（`libmpv/client.h` → `include/mpv/client.h`），
-  装好的路径仍是 `mpv/client.h`。`MPV_END_FILE_REASON_ERROR = 4`
-  （不是 3），`mpv_event_end_file` 的 `playlist_entry_id` 是
-  int64_t（旧版是 const char*）。
-  例外是 MoltenVK：它是库型 XCFramework，切片里只有 `libMoltenVK.a`、
-  没有 `.framework` 包，打 dylib 时直接传这个 .a。
-  系统库：MPVKit 的 `_MPVKit` / `_FFmpeg` 目标在 `linkerSettings` 里
-  声明的系统框架与系统库（AVFoundation、CoreAudio、AudioToolbox、
-  CoreVideo、CoreFoundation、CoreMedia、Metal、VideoToolbox；bz2、
-  iconv、expat、resolv、xml2、z、c++）在打 dylib 时补上；另外还要
-  补 QuartzCore、CoreGraphics、CoreText、IOSurface、Foundation——
-  MoltenVK 要 kCAGravity/kCGColorSpace/IOSurface，Libass 要 CTFont，
-  124 静态链进主程序时这些符号由主程序已链的框架兜底，独立打 dylib
-  时必须自己链上（v0.0.129 就是这么挂的，65 个未定义符号全是这 5 个
-  框架的；v0.0.130 又差 OpenGLES 与 UIKit——Libmpv 的 iOS GL 硬解要
-  EAGLContext，MoltenVK 要 UIScreen/UIView）。
-  smb：LGPL 的 Libavformat 编译时开了 SMB 支持，但 Libsmbclient 是
-  GPL、不在 LGPL 产品里，22 个 `smbc_*` 符号在 C 里写空实现
-  （`src-tauri/ios/smbc_stubs.c`，返回错误/NULL），一起链进动态库
-  内部（自包含——dlopen 那一刻 chained fixups 下全部符号立即绑定，
-  必须有着落；不依赖主程序导出，Rust 版空实现已删掉）；不要为此链
-  GPL 的 Libsmbclient，smb:// 播放不支持。v0.0.124 曾用 `-Wl,-U`
-  让它们保持未定义，结果 dyld 启动时就要解析、直接 abort（启动闪
-  退），已删掉。维护注意：`MPVEngine.swift` 若新增 dlsym 的 mpv_*
-  函数，必须同步加进 `build-ios-unsigned.sh` 的 `-u` 列表，否则
-  dylib 里没有它、运行时 dlsym 失败。打完 dylib 后校验：arm64
-  Mach-O 动态库；install_name 是 `@rpath/MPVKit.framework/MPVKit`；
-  无 `__mod_init_func`（有的话 dlopen 时会先跑构造器）；`mpv_create`
-  已定义（导出）；`smbc_*` 无未定义。
+  原生 dylib（v0.0.142 起，`src-tauri/ios/mpv-dylibs/`，mpv 0.41.0 +
+  FFmpeg 8.1-dev 一代，27 个，替代 MPVKit），
+  `engines/MPVEngine.swift` 不 `import Libmpv`，改在用户选 mpv 点播放
+  时 `dlopen` libmpv.2.dylib + `dlsym`（见下）。调用的还是同一套
+  libmpv C API（`mpv_create` / `mpv_initialize` / `loadfile` /
+  `seek` / `pause` / `speed` / `volume` / `time-pos` / `duration` /
+  `dwidth` / `dheight`，事件走 `mpv_set_wakeup_callback` +
+  `mpv_wait_event` 排空），渲染改走 libmpv render API
+  （`mpv_render_context_*`）+ EAGLContext（OpenGL ES 3.0，不行就
+  2.0）：App 自己建 FBO/颜色 renderbuffer，mpv 发新帧通知时在渲染
+  线程上 `mpv_render_context_update()` + `mpv_render_context_render()`
+  画进 FBO 再上屏。注意这套库里没有 `MPVPlayer` / `MPVGLView`
+  （那是另一个 libmpv-ios 项目的包），旧代码里按它们写的分支已经删掉。
+  懒加载（v0.0.127 起，v0.0.142 换 dylib）：v0.0.124/125 把 MPVKit
+  28 个 LGPL 产物静态链进主程序后启动黑屏（无 .ips、无 JetsamEvent），
+  v0.0.126 摘掉就启动，证实是它；机制未明（无静态初始化器、符号与
+  链接库都查过无问题），但实证已足够。所以 mpv 的库不再进主程序：
+  27 个 dylib 只拷进 `.app/Frameworks/`（`scripts/build-ios-unsigned.sh`
+  在 xcodebuild 之后拷，校验见下），`MPVEngine.swift` 在 open 入口
+  才 dlopen（全路径 `Frameworks/libmpv.2.dylib`，`RTLD_NOW |
+  RTLD_GLOBAL`）并 dlsym 出 18 个 libmpv 函数（12 个核心 + 6 个
+  render API，缺一个就整体失败，报 unavailable、播放链回落
+  AVPlayer/WebView）；不 dlclose，进程生命周期内常驻。主程序里没
+  有任何 mpv 符号，启动与 126 完全一致。dylib 的 install_name 全是
+  `@rpath/<名>`，靠主程序 rpath（`@executable_path/Frameworks`）
+  解析，不用改。libmpv 的常量与结构体布局按 mpv 0.41.0 的
+  `client.h` / `render.h` / `render_gl.h` 在 Swift 里手写
+  （`MPV_FORMAT_*` / `MPV_EVENT_*` / `MPV_END_FILE_REASON_*` /
+  `mpv_event` / `mpv_event_property` / `mpv_event_end_file` /
+  `mpv_render_param` / `mpv_opengl_init_params` / `mpv_opengl_fbo`），
+  改版先核对头文件——0.41.0 与 0.40.0 的常量与核心结构体已逐项比
+  对过（API 2.5），完全一致；0.41.0 的头文件在上游改了位置
+  （`libmpv/client.h` → `include/mpv/client.h`），装好的路径仍是
+  `mpv/client.h`。`MPV_END_FILE_REASON_ERROR = 4`（不是 3），
+  `mpv_event_end_file` 的 `playlist_entry_id` 是 int64_t（旧版是
+  const char*）。render API 的参数数组以 type==0（INVALID）结尾；
+  `mpv_render_context_create` 必须在 GL 上下文是当前时、在渲染线程
+  上调；`mpv_render_context_free` 必须在 `mpv_terminate_destroy`
+  之前调。`FLIP_Y=1`（iOS 上画进 FBO 要翻一次，见 render_gl.h 的
+  说明与真机画面方向）。
+  例外是 MoltenVK：UZN 这套库里没有独立的 MoltenVK dylib，它已静态
+  链入 libplacebo.360.dylib 与 libmpv.2.dylib；构建参数含
+  `-Dvulkan=enabled -Dmoltenvk=enabled -Dplain-gl=enabled
+  -Dios-gl=enabled`，即 Vulkan 与 OpenGL ES 两条路都编译进去了，
+  render API 用 gpu-api=opengl 没问题（142 的选择；vulkan 路留给
+  wid，不再用）。
+  系统库：dylib 依赖的系统 Framework 与系统库（AVFoundation、
+  CoreAudio、AudioToolbox、CoreVideo、CoreFoundation、CoreMedia、
+  Metal、VideoToolbox、AVFAudio、Accelerate、Security、IOSurface、
+  UIKit；bz2、iconv、expat、z、c++）由主程序链接——MPVEngine.swift
+  直接调 EAGLContext 与 GL 函数，所以主程序必须链 OpenGLES
+  （`build-ios-unsigned.sh` 的 xcodebuild OTHER_LDFLAGS 里已加
+  `-framework OpenGLES`）。
+  smb：这一代 FFmpeg 没有 SMB 支持（libavformat 里无 `smbc_*`
+  引用），不再需要空实现；`src-tauri/ios/smbc_stubs.c` 已随 MPVKit
+  退役删掉。smb:// 播放不支持。
+  维护注意：`MPVEngine.swift` 若新增 dlsym 的 mpv_* 函数，直接加进
+  `MPVAPI` 的 dlsym 表即可（不再有 `-u` 列表——dylib 是现成的，不用
+  链接器拉符号）。换版时从 libmpv.2.dylib 出发重算 27 个的闭包
+  （方法见 `src-tauri/ios/mpv-dylibs/README.md`），不要凭印象增删。
+  打包时校验：目录里是 27 个 dylib；每个都是 arm64 Mach-O dylib；
+  install_name 是 `@rpath/<名>`；libmpv.2.dylib 导出 `_mpv_create`
+  与 6 个 render API 符号。
+  hwdec 回退（v0.0.142，UZN 的做法）：硬解 videotoolbox 在 loadfile
+  8 秒后仍没视频轨（有数据、有时长、播着）就自动切 hwdec=no 软解
+  重播一次，只触发一次，诊断行里记 `hwdec=no(fallback)`。DV 那条
+  没搬：mpv 0.41.0 源码里没有 `--dolby-vision-profile` 这个选项，
+  UZN 的 MPVForceDolbyVisionProfile5 是它自己的逻辑、静态看不出
+  它到底改了 mpv 哪个设置，没法照搬；DV 片若硬解失败会走回退进软解。
   真机播放（v0.0.133/134 的结论已收回，2026-11-27）：那几次点的
   都是选集、走 WebView 内嵌播放，mpv 一次都没跑起来——“有声、进度
   走、画面全黑”是 WebView 硬解失败的老问题，不是 mpv 的表现；134
