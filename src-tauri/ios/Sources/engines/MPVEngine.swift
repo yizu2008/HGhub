@@ -146,9 +146,12 @@ private struct MPVAPI {
   let requestLogMessages: @convention(c) (OpaquePointer?, UnsafePointer<CChar>?) -> Int32
   let waitEvent: @convention(c) (OpaquePointer?, Double) -> UnsafeMutableRawPointer?
   let setWakeupCallback: @convention(c) (OpaquePointer?, (@convention(c) (UnsafeMutableRawPointer?) -> Void)?, UnsafeMutableRawPointer?) -> Void
-  let renderContextCreate: @convention(c) (UnsafeMutablePointer<OpaquePointer?>?, OpaquePointer?, UnsafeMutablePointer<MPVRenderParam>?) -> Int32
+  // params 在 C 里是 mpv_render_param*；MPVRenderParam 是 Swift 自定
+  // 结构体、进不了 @convention(c) 签名，这里只传裸指针，调用处再
+  // 把 [MPVRenderParam] 的 baseAddress 传进来（布局与 C 结构体一致）。
+  let renderContextCreate: @convention(c) (UnsafeMutablePointer<OpaquePointer?>?, OpaquePointer?, UnsafeMutableRawPointer?) -> Int32
   let renderContextFree: @convention(c) (OpaquePointer?) -> Void
-  let renderContextRender: @convention(c) (OpaquePointer?, UnsafeMutablePointer<MPVRenderParam>?) -> Int32
+  let renderContextRender: @convention(c) (OpaquePointer?, UnsafeMutableRawPointer?) -> Int32
   let renderContextSetUpdateCallback: @convention(c) (OpaquePointer?, (@convention(c) (UnsafeMutableRawPointer?) -> Void)?, UnsafeMutableRawPointer?) -> Void
   let renderContextUpdate: @convention(c) (OpaquePointer?) -> UInt64
   let renderContextReportSwap: @convention(c) (OpaquePointer?) -> Void
@@ -198,9 +201,9 @@ private func loadMPVAPI() -> (api: MPVAPI?, error: String?) {
         let requestLogMessages = sym("mpv_request_log_messages", as: (@convention(c) (OpaquePointer?, UnsafePointer<CChar>?) -> Int32).self),
         let waitEvent = sym("mpv_wait_event", as: (@convention(c) (OpaquePointer?, Double) -> UnsafeMutableRawPointer?).self),
         let setWakeupCallback = sym("mpv_set_wakeup_callback", as: (@convention(c) (OpaquePointer?, (@convention(c) (UnsafeMutableRawPointer?) -> Void)?, UnsafeMutableRawPointer?) -> Void).self),
-        let renderContextCreate = sym("mpv_render_context_create", as: (@convention(c) (UnsafeMutablePointer<OpaquePointer?>?, OpaquePointer?, UnsafeMutablePointer<MPVRenderParam>?) -> Int32).self),
+        let renderContextCreate = sym("mpv_render_context_create", as: (@convention(c) (UnsafeMutablePointer<OpaquePointer?>?, OpaquePointer?, UnsafeMutableRawPointer?) -> Int32).self),
         let renderContextFree = sym("mpv_render_context_free", as: (@convention(c) (OpaquePointer?) -> Void).self),
-        let renderContextRender = sym("mpv_render_context_render", as: (@convention(c) (OpaquePointer?, UnsafeMutablePointer<MPVRenderParam>?) -> Int32).self),
+        let renderContextRender = sym("mpv_render_context_render", as: (@convention(c) (OpaquePointer?, UnsafeMutableRawPointer?) -> Int32).self),
         let renderContextSetUpdateCallback = sym("mpv_render_context_set_update_callback", as: (@convention(c) (OpaquePointer?, (@convention(c) (UnsafeMutableRawPointer?) -> Void)?, UnsafeMutableRawPointer?) -> Void).self),
         let renderContextUpdate = sym("mpv_render_context_update", as: (@convention(c) (OpaquePointer?) -> UInt64).self),
         let renderContextReportSwap = sym("mpv_render_context_report_swap", as: (@convention(c) (OpaquePointer?) -> Void).self)
@@ -561,7 +564,9 @@ final class MPVEngine: NSObject, NativePlayerEngine {
           MPVRenderParam(type: MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, data: &initParams),
           MPVRenderParam(type: MPV_RENDER_PARAM_INVALID, data: nil),
         ]
-        result = api.renderContextCreate(&newRenderContext, handle, &params)
+        result = params.withUnsafeMutableBufferPointer { paramBuf in
+          api.renderContextCreate(&newRenderContext, handle, paramBuf.baseAddress)
+        }
       }
       return result
     }
@@ -666,7 +671,9 @@ final class MPVEngine: NSObject, NativePlayerEngine {
         MPVRenderParam(type: MPV_RENDER_PARAM_FLIP_Y, data: &flip),
         MPVRenderParam(type: MPV_RENDER_PARAM_INVALID, data: nil),
       ]
-      let result = api.renderContextRender(renderContext, &params)
+      let result = params.withUnsafeMutableBufferPointer { paramBuf in
+        api.renderContextRender(renderContext, paramBuf.baseAddress)
+      }
       if result >= 0 {
         glView.presentFramebuffer()
         api.renderContextReportSwap(renderContext)
@@ -776,7 +783,7 @@ final class MPVEngine: NSObject, NativePlayerEngine {
     guard let api = api else { return }
     var cValue: [CChar] = Array(value.utf8CString)
     cValue.withUnsafeMutableBufferPointer { buf in
-      var ptr: UnsafePointer<CChar>? = buf.baseAddress
+      var ptr: UnsafeMutablePointer<CChar>? = buf.baseAddress
       api.setProperty(handle, name, MPV_FORMAT_STRING, &ptr)
     }
   }
