@@ -59,6 +59,19 @@ pub struct NativePlayerState {
     pub mpv_log_lines: Vec<String>,
     #[serde(default)]
     pub mpv_event_loop_alive: bool,
+    /// mpv 诊断（v0.0.139 起）：138 真机 mpv 日志行数恒为 0，改直接读
+    /// mpv 状态量透传给前端；缺省 default——旧版 Swift 回包没有这些键
+    /// 时也不报错。
+    #[serde(default)]
+    pub mpv_idle_active: bool,
+    #[serde(default)]
+    pub mpv_vo_configured: bool,
+    #[serde(default)]
+    pub mpv_paused_for_cache: bool,
+    #[serde(default)]
+    pub mpv_events_drained: u64,
+    #[serde(default)]
+    pub mpv_open_diag: String,
 }
 
 /// 向 Swift 插件注册 "native-player"。setup 闭包与 native_player.rs 在同一
@@ -283,7 +296,12 @@ mod tests {
             "videoHeight": 720,
             "mpvLogCount": 3,
             "mpvLogLines": ["vo/gpu: 1920x800", "vo/gpu: done"],
-            "mpvEventLoopAlive": true
+            "mpvEventLoopAlive": true,
+            "mpvIdleActive": false,
+            "mpvVoConfigured": true,
+            "mpvPausedForCache": false,
+            "mpvEventsDrained": 17,
+            "mpvOpenDiag": "init=0 loadfile=0 url=http://127.0.0.1"
         });
         let state: NativePlayerState =
             serde_json::from_value(from_swift).expect("Swift 回包应按驼峰键解出");
@@ -292,11 +310,19 @@ mod tests {
         assert_eq!(state.mpv_log_count, 3);
         assert_eq!(state.mpv_log_lines.len(), 2);
         assert!(state.mpv_event_loop_alive);
+        assert!(!state.mpv_idle_active);
+        assert!(state.mpv_vo_configured);
+        assert!(!state.mpv_paused_for_cache);
+        assert_eq!(state.mpv_events_drained, 17);
+        assert_eq!(state.mpv_open_diag, "init=0 loadfile=0 url=http://127.0.0.1");
         // 序列化方向也一样：前端 NativePlayerState 声明的是 videoWidth。
         let back = serde_json::to_value(&state).unwrap();
         assert_eq!(back["videoWidth"], 1280);
         assert!(back.get("video_width").is_none());
         assert_eq!(back["mpvLogCount"], 3);
         assert_eq!(back["mpvEventLoopAlive"], true);
+        assert_eq!(back["mpvVoConfigured"], true);
+        assert_eq!(back["mpvEventsDrained"], 17);
+        assert_eq!(back["mpvOpenDiag"], "init=0 loadfile=0 url=http://127.0.0.1");
     }
 }

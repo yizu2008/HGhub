@@ -151,9 +151,12 @@ pill（v0.0.22 删掉），入口只在更多菜单里。
   Mach-O 动态库；install_name 是 `@rpath/MPVKit.framework/MPVKit`；
   无 `__mod_init_func`（有的话 dlopen 时会先跑构造器）；`mpv_create`
   已定义（导出）；`smbc_*` 无未定义。
-  真机播放（v0.0.133/134 已测）：mpv 能加载、能解码、有声、进度走，
-  但画面全黑。133 先 initialize 后 present，134 改先 present 后
-  initialize，都一样黑——初始化顺序不是原因（或不是唯一原因）。
+  真机播放（v0.0.133/134 的结论已收回，2026-11-27）：那几次点的
+  都是选集、走 WebView 内嵌播放，mpv 一次都没跑起来——“有声、进度
+  走、画面全黑”是 WebView 硬解失败的老问题，不是 mpv 的表现；134
+  的先 present 后 initialize 改动本身保留，但“初始化顺序不是原因”
+  这个结论没有真机证据支撑。mpv 第一次真正跑起来是 138 的重测，
+  见下。
   诊断（v0.0.135 起，v0.0.137 起改走 state 命令）：`MPVEngine` 常开
   mpv 日志 info 级（`mpv_request_log_messages(handle, "info")`）。
   135/136 曾把 `MPV_EVENT_LOG_MESSAGE` 经 `native-player-log` 事件发
@@ -162,8 +165,10 @@ pill（v0.0.22 删掉），入口只在更多菜单里。
   `mpvLogCount` / `mpvLogLines` / `mpvEventLoopAlive`，前端轮询读出
   来写进运行日志（见下）。mpv 自己的 VO/swapchain 报错只有这里能看到；
   黑画面先看运行日志里的这几行，再定下一步。
-  135 真机（2026-11-27）：播了 12 秒，`[mpv]` 行一行都没出来——
-  日志链路本身在注册之后断了，不是注册被拦。`addPluginListener`
+  135 真机（2026-11-27）：播了 12 秒，`[mpv]` 行一行都没出来——但
+  那次测试同样走的 WebView（同上），“日志链路在注册之后断了”这个
+  结论收回；138 真机重测第一次真正跑起 mpv，日志行数仍是 0——日志
+  通道本身是哑的，原因还没查清，见 139。`addPluginListener`
   注册时有 camelCase fallback（先试下划线 `register_listener`，被
   拒改试驼峰 `registerListener`，权限文件里写的正是驼峰），所以注
   册成功；`unregister()` 没有 fallback，只调下划线，所以注销被拒。
@@ -197,6 +202,25 @@ pill（v0.0.22 删掉），入口只在更多菜单里。
   `[mpv] [diag] state poll ok, count=N, loopAlive=<bool>`，第一次失败写一行
   `[mpv] [diag] state invoke failed: <err>`；`openNative` 成功时写一行
   `[diag] native player opened, engine=<engine>`，先分清 mpv 到底打开没有。
+  138 真机重测（2026-11-27，pid 12401，版本号已确认 0.0.138）：详情页 →
+  更多播放选项 → 原生播放，mpv 第一次真正跑起来：`[diag] native player
+  opened, engine=mpv`，随后 `state poll ok, count=0, loopAlive=true` +
+  `event loop alive`。但约 19 秒黑屏、无声、进度条不动，mpv 日志行数
+  一直是 0，也没有播错/播完回落；同会话 12:15:00 第 7 次 tao AppState
+  崩溃。结论：mpv 初始化成功、loadfile 已排队，但播放没启动；日志
+  通道本身是哑的，靠日志行定位到此为止。
+  诊断（v0.0.139 起）：不再只靠 mpv 日志行。`NativePlayerState` 增加
+  `mpvIdleActive`（idle-active）、`mpvVoConfigured`（vo-configured）、
+  `mpvPausedForCache`（paused-for-cache）、`mpvEventsDrained`（事件循环
+  累计排空的事件数）、`mpvOpenDiag`（`init=<rc> loadfile=<rc>
+  url=<scheme>://<host>`，只记 scheme/host，不记 path/query）；Rust 侧
+  同名 camelCase 字段透传（`native_player.rs`，`#[serde(default)]`）；
+  前端轮询每秒写一行 `[mpv] [diag] state pos=… dur=… playing=…
+  idle=… vo=… cachePaused=… w=… h=… drained=… count=…`。读法：`vo=false`
+  → VO 没配起来（看 gpu-next/MoltenVK）；`idle=true` 且 `drained` 在涨
+  → mpv 空闲、事件在走，loadfile 没起播；`drained` 不涨 → wakeup 之后
+  事件不再来；`cachePaused=true` → 在等缓冲；`pos` 走但画面黑 → 解码/
+  渲染问题，不是没起播。vo 配置 139 没改，先看清卡在哪一步再定。
 
 ## Mac 验证（按顺序）
 

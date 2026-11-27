@@ -42,6 +42,12 @@ export interface NativePlayerState {
   mpvLogCount: number;
   mpvLogLines: string[];
   mpvEventLoopAlive: boolean;
+  /** mpv 诊断（v0.0.139 起）：138 真机日志行数恒为 0，改直接读状态量。idle-active / vo-configured / paused-for-cache + 事件循环累计排空数 + 打开时的返回码与 URL 归属（只记 scheme/host）；其它引擎为默认。 */
+  mpvIdleActive: boolean;
+  mpvVoConfigured: boolean;
+  mpvPausedForCache: boolean;
+  mpvEventsDrained: number;
+  mpvOpenDiag: string;
 }
 
 export interface NativePlayerTimeEvent {

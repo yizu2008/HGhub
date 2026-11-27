@@ -504,8 +504,13 @@ export default function Feed({media, position, active=true, preparing=false, err
     void nativePlayerState().then((s) => {
       if (!mpvPollOkLoggedRef.current) {
         mpvPollOkLoggedRef.current = true;
-        void invoke("debug_log", { msg: `[mpv] [diag] state poll ok, count=${s.mpvLogCount}, loopAlive=${s.mpvEventLoopAlive}` }).catch(() => {});
+        void invoke("debug_log", { msg: `[mpv] [diag] state poll ok, count=${s.mpvLogCount}, loopAlive=${s.mpvEventLoopAlive}, open=${s.mpvOpenDiag}` }).catch(() => {});
       }
+      // 诊断（v0.0.139）：138 真机 mpv 日志行数恒为 0，等日志行永远等
+      // 不到，所以每秒直接写一行状态量——位置/时长/是否在播/idle/VO
+      // 是否配好/是否在等缓冲/分辨率/事件排空数/日志行数，mpv 卡在哪
+      // 一步就看这行怎么变。
+      void invoke("debug_log", { msg: `[mpv] [diag] state pos=${s.position.toFixed(2)} dur=${s.duration.toFixed(2)} playing=${s.playing} idle=${s.mpvIdleActive} vo=${s.mpvVoConfigured} cachePaused=${s.mpvPausedForCache} w=${s.videoWidth} h=${s.videoHeight} drained=${s.mpvEventsDrained} count=${s.mpvLogCount}` }).catch(() => {});
       if (mpvLogSeenRef.current > 0 && s.mpvLogCount === 0) { finishMpvDiag(); return; }
       flushMpvDiag(s);
     }).catch((e) => {

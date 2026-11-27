@@ -199,6 +199,15 @@ final class MPVEngine: NSObject, NativePlayerEngine {
   private var logMessageCount = 0
   private var recentLogLines: [String] = []
 
+  // 诊断（v0.0.139）：打开时的返回码与 URL 归属（只记 scheme/host，
+  // 不记 path/query），以及事件循环累计排空数——区分“wakeup 后事件
+  // 不再来”和“事件在走但没有日志行”。
+  private var initResult: Int32 = -999
+  private var loadfileResult: Int32 = -999
+  private var openURLScheme: String = ""
+  private var openURLHost: String = ""
+  private var eventsDrainedTotal: Int = 0
+
   /// 分辨率：dwidth/dheight（mpv 实际显示尺寸），没拿到就报未知（.zero）。
   var videoSize: CGSize { CGSize(width: videoW, height: videoH) }
 
@@ -218,7 +227,12 @@ final class MPVEngine: NSObject, NativePlayerEngine {
       videoHeight: videoH,
       mpvLogCount: logMessageCount,
       mpvLogLines: recentLogLines,
-      mpvEventLoopAlive: eventLoopAlive)
+      mpvEventLoopAlive: eventLoopAlive,
+      mpvIdleActive: getFlag("idle-active"),
+      mpvVoConfigured: getFlag("vo-configured"),
+      mpvPausedForCache: getFlag("paused-for-cache"),
+      mpvEventsDrained: eventsDrainedTotal,
+      mpvOpenDiag: "init=\(initResult) loadfile=\(loadfileResult) url=\(openURLScheme)://\(openURLHost)")
   }
 
   /// 引擎被插件丢掉也没调 close() 时也要把 libmpv 句柄销毁，
@@ -246,6 +260,10 @@ final class MPVEngine: NSObject, NativePlayerEngine {
       return
     }
     self.api = api
+    openURLScheme = url.scheme ?? ""
+    openURLHost = url.host ?? ""
+    initResult = -999
+    loadfileResult = -999
     guard let handle = api.create() else {
       completion(.failure(NativePlayerUnavailableError(message: "mpv 创建失败")))
       return
@@ -288,7 +306,8 @@ final class MPVEngine: NSObject, NativePlayerEngine {
     #else
     api.requestLogMessages(handle, "info")
     #endif
-    guard api.initialize(handle) >= 0 else {
+    initResult = api.initialize(handle)
+    guard initResult >= 0 else {
       api.terminateDestroy(handle)
       container.dismiss(animated: false, completion: nil)
       self.videoView = nil
@@ -308,7 +327,8 @@ final class MPVEngine: NSObject, NativePlayerEngine {
     // 回环 session 地址直接播：上游头/Range/密钥由 Rust 代理处理，
     // 不用再给 mpv 拼 http-header-fields。
     // loadfile 只是把命令排队（异步），返回 <0 才是参数级错误。
-    if command(handle, "loadfile", args: [url.absoluteString, "replace"]) < 0 {
+    loadfileResult = command(handle, "loadfile", args: [url.absoluteString, "replace"])
+    if loadfileResult < 0 {
       close()
       completion(.failure(NativePlayerUnavailableError(message: "mpv 打开失败")))
       return
@@ -387,6 +407,11 @@ final class MPVEngine: NSObject, NativePlayerEngine {
     eventLoopAlive = false
     logMessageCount = 0
     recentLogLines = []
+    initResult = -999
+    loadfileResult = -999
+    openURLScheme = ""
+    openURLHost = ""
+    eventsDrainedTotal = 0
     videoW = 0
     videoH = 0
   }
@@ -485,7 +510,10 @@ final class MPVEngine: NSObject, NativePlayerEngine {
         }
       }
       if drained > 0 {
-        DispatchQueue.main.async { self.eventLoopAlive = true }
+        DispatchQueue.main.async {
+          self.eventLoopAlive = true
+          self.eventsDrainedTotal += drained
+        }
       }
     }
   }

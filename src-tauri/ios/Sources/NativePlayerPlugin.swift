@@ -70,6 +70,16 @@ struct NativePlayerState: Encodable {
   var mpvLogCount: Int = 0
   var mpvLogLines: [String] = []
   var mpvEventLoopAlive: Bool = false
+  /// mpv 诊断（v0.0.139 起）：138 真机 mpv 日志行数恒为 0，靠日志行定位
+  /// 到此为止，改直接读 mpv 状态量。idle-active / vo-configured /
+  /// paused-for-cache 三个 mpv 属性 + 事件循环累计排空数 + 打开时的
+  /// initialize/loadfile 返回码与 URL scheme/host（只记 host，不记
+  /// path/query）；其它引擎恒为默认。
+  var mpvIdleActive: Bool = false
+  var mpvVoConfigured: Bool = false
+  var mpvPausedForCache: Bool = false
+  var mpvEventsDrained: Int = 0
+  var mpvOpenDiag: String = ""
 }
 
 // MARK: - 引擎事件（经 trigger 发回前端，见前端 nativePlayer.ts）
