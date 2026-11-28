@@ -83,8 +83,9 @@ xcodebuild build \
   TOOLCHAIN_DIR="$XCODE_TOOLCHAIN" \
   IPHONEOS_DEPLOYMENT_TARGET=16.0 \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-  FRAMEWORK_SEARCH_PATHS='$(inherited) $(PROJECT_DIR) $(PROJECT_DIR)/Python.xcframework/ios-arm64' \
-  OTHER_LDFLAGS='$(inherited) -framework Python -framework SystemConfiguration -framework OpenGLES'
+  FRAMEWORK_SEARCH_PATHS='$(inherited) $(PROJECT_DIR) $(PROJECT_DIR)/Python.xcframework/ios-arm64 $(PROJECT_DIR)/AetherLib' \
+  LIBRARY_SEARCH_PATHS='$(inherited) $(PROJECT_DIR)/AetherLib' \
+  OTHER_LDFLAGS='$(inherited) -framework Python -framework SystemConfiguration -framework OpenGLES -ldovi'
 
 APP_DIR="$ROOT/build_output/Build/Products/release-iphoneos"
 # 产品名改名后 .app 文件名会跟着变（改名前是 HGhub.app），不写死名字，
@@ -155,6 +156,28 @@ for sym in _mpv_render_context_create _mpv_render_context_free _mpv_render_conte
   fi
 done
 ls -lh "$APP/Frameworks/" | head -30
+
+# AetherEngine 二进制依赖装包：build.rs 在 cargo 构建时把 swift build
+# 产物里的 AetherLib*.framework + libdovi.a 拷到 gen/apple/AetherLib/。
+# framework 是动态库，须嵌进 .app/Frameworks/ 才能在真机上加载
+# （libdovi.a 是静态库，已链进主程序，不用嵌）。cp -RP 保留 framework
+# 里的符号链接（Headers/Current 等）。
+AETHER_STAGE="src-tauri/gen/apple/AetherLib"
+AETHER_COUNT=$(find "$AETHER_STAGE" -maxdepth 1 -name 'AetherLib*.framework' -type d 2>/dev/null | wc -l)
+if [ "$AETHER_COUNT" -eq 0 ]; then
+  echo 'AetherLib framework 未找到：gen/apple/AetherLib/ 里没有 AetherLib*.framework（build.rs 的 staging 没跑起来）' >&2
+  exit 1
+fi
+mkdir -p "$APP/Frameworks"
+for fw in "$AETHER_STAGE"/AetherLib*.framework; do
+  cp -RP "$fw" "$APP/Frameworks/"
+done
+# 校验：嵌进去的 framework 数量与 staging 一致。
+EMBEDDED_COUNT=$(find "$APP/Frameworks" -maxdepth 1 -name 'AetherLib*.framework' -type d | wc -l)
+if [ "$EMBEDDED_COUNT" -ne "$AETHER_COUNT" ]; then
+  echo "AetherLib framework 装包数量不对：staging $AETHER_COUNT，包里 $EMBEDDED_COUNT" >&2
+  exit 1
+fi
 
 PACKAGE_DIR=$(mktemp -d)
 mkdir -p "$PACKAGE_DIR/Payload"

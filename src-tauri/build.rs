@@ -102,10 +102,101 @@ fn link_ios_native_plugins() {
     println!("cargo:rerun-if-changed=ios/Sources");
     #[cfg(target_os = "macos")]
     tauri_utils::build::link_apple_library("NativePlugins", &manifest_dir.join("ios"));
+    // AetherEngine 的二进制依赖（FFmpegBuild 的 AetherLib* 动态 framework
+    // + LibDovi 的 libdovi.a）由 swift build 拷进 swift-rs 产物目录，但
+    // swift-rs 只把 libNativePlugins.a 的搜索路径告诉 cargo，Xcode 链接
+    // 时找不到这些 framework（ld: framework not found，131 个未定义符号）。
+    // 这里把它们拷到 gen/apple/AetherLib/（固定位置），build 脚本再把
+    // 该目录加进 FRAMEWORK_SEARCH_PATHS / LIBRARY_SEARCH_PATHS，并把
+    // framework 嵌进 .app/Frameworks/。找不到就直接 panic，宁可构建
+    // 失败也不要链进过期 framework。
+    #[cfg(target_os = "macos")]
+    stage_aether_frameworks(&manifest_dir);
     // mpv 原生 dylib（v0.0.142 起，不再用 MPVKit）：已 vendor 在
     // src-tauri/ios/mpv-dylibs/，build-ios-unsigned.sh 在 xcodebuild
     // 之后直接拷进 .app/Frameworks/，选 mpv 播放时才 dlopen。这里不
     // 用 staging、不链进主程序（启动零引用，126 的教训）。
+}
+
+/// 把 swift build 产物里的 AetherEngine 二进制依赖拷到
+/// `gen/apple/AetherLib/`（固定位置，供 Xcode 链接与装包）。
+/// 产物目录布局随 Xcode 版本变（26 是 arm64-apple-macosx/release，
+/// 27 是 Products/Release-iphoneos），不写死路径，递归按名字找；
+/// checkouts/ 里是 xcframework 原包（双 slice），只取产物目录里
+/// 已拷出来的那份，不碰它。
+#[cfg(target_os = "macos")]
+fn stage_aether_frameworks(manifest_dir: &Path) {
+    let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
+    let swift_root = PathBuf::from(out_dir)
+        .join("swift-rs")
+        .join("NativePlugins");
+    let mut frameworks: Vec<PathBuf> = Vec::new();
+    let mut dovi: Option<PathBuf> = None;
+    fn walk(dir: &Path, frameworks: &mut Vec<PathBuf>, dovi: &mut Option<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let Ok(ft) = entry.file_type() else { continue };
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with("AetherLib") && name.ends_with(".framework") {
+                frameworks.push(entry.path());
+            } else if name == "libdovi.a" {
+                *dovi = Some(entry.path());
+            } else if ft.is_dir() && name != "checkouts" {
+                walk(&entry.path(), frameworks, dovi);
+            }
+        }
+    }
+    walk(&swift_root, &mut frameworks, &mut dovi);
+    if frameworks.is_empty() {
+        panic!(
+            "AetherEngine framework 未找到：swift build 产物目录 {} 下没有 AetherLib*.framework",
+            swift_root.display()
+        );
+    }
+    let Some(dovi) = dovi else {
+        panic!(
+            "libdovi.a 未找到：swift build 产物目录 {} 下没有 libdovi.a",
+            swift_root.display()
+        );
+    };
+    // gen/ 已在 .gitignore 里，staging 不会进仓库；每次先清掉再拷，
+    // 防止链进上个版本的过期 framework。
+    let stage = manifest_dir.join("gen").join("apple").join("AetherLib");
+    let _ = std::fs::remove_dir_all(&stage);
+    std::fs::create_dir_all(&stage).expect("failed to create AetherLib stage dir");
+    for fw in &frameworks {
+        let dest = stage.join(fw.file_name().unwrap());
+        copy_dir_preserve_symlinks(fw, &dest);
+    }
+    std::fs::copy(&dovi, stage.join("libdovi.a")).expect("failed to stage libdovi.a");
+    println!(
+        "cargo:warning=staged {} AetherLib frameworks + libdovi.a to {}",
+        frameworks.len(),
+        stage.display()
+    );
+}
+
+/// 递归拷目录，保留符号链接（.framework 里 Headers/Current 等是链接，
+/// fs::copy 会跟随链接把目录当文件拷而报错）。
+#[cfg(target_os = "macos")]
+fn copy_dir_preserve_symlinks(src: &Path, dst: &Path) {
+    std::fs::create_dir_all(dst).expect("failed to create dir");
+    for entry in std::fs::read_dir(src).expect("failed to read dir") {
+        let entry = entry.expect("failed to read entry");
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        let meta = std::fs::symlink_metadata(&from).expect("failed to stat");
+        if meta.file_type().is_symlink() {
+            let target = std::fs::read_link(&from).expect("failed to read link");
+            std::os::unix::fs::symlink(&target, &to).expect("failed to create symlink");
+        } else if meta.is_dir() {
+            copy_dir_preserve_symlinks(&from, &to);
+        } else {
+            std::fs::copy(&from, &to).expect("failed to copy file");
+        }
+    }
 }
 
 /// 把 tauri 的 iOS Swift API 目录拷到 `dst`（即 src-tauri/.tauri/tauri-api）。

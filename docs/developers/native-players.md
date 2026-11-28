@@ -777,11 +777,29 @@ Vincent Herbst 的独立开源引擎，不是 MDK 改名。
   用范围 `"6.89.1"..<"7.0.0"`——等价于上游文档说的
   `.upToNextMajor(from: "6.89.1")`，那个写法要 swift-tools 6.0；
   本包保持 5.6（升 6.0 会把整个包切到 Swift 6 语言模式，现有代
-  码要重过并发检查），范围写法 5.6 就有。应用底线抬升双保险：
-  `Package.swift` 平台 iOS 16 / macOS 14 +
-  `build-ios-unsigned.sh` 的 xcodebuild 参数
-  `IPHONEOS_DEPLOYMENT_TARGET=16.0`（15.0 是 Tauri 模板默认值，
-  仓库里没地方写死它）。
+  码要重过并发检查），范围写法 5.6 就有。应用底线抬升的真正杠
+  杆是 `src-tauri/tauri.ios.conf.json` 的
+  `bundle.iOS.minimumSystemVersion`（15.0→16.0，v0.0.150）：
+  tauri-build 把它发成 `cargo:rustc-env=IPHONEOS_DEPLOYMENT_TARGET`，
+  swift-rs 再用它定 swift 的 `-target`；只在 xcodebuild 命令行加
+  `IPHONEOS_DEPLOYMENT_TARGET=16.0` 够不到 cargo/swift 这条链
+  （150 第一轮 CI 就是这么挂的：swift 按 ios15.0 编，AetherEngine
+  的 iOS 16 API 全报 unavailable）。
+- **链接与装包（v0.0.150）**：`swift build` 会把 FFmpegBuild 的 9
+  个 `AetherLib*` 动态 framework 与 LibDovi 的 `libdovi.a` 拷进
+  swift-rs 产物目录，但 swift-rs 只把 `libNativePlugins.a` 的搜索
+  路径告诉 cargo，Xcode 链接时找不到这些 framework（ld:
+  framework not found，131 个未定义符号，全是 `av_*` / `swr_*` /
+  `sws_*` / `dovi_*`）。修法：`src-tauri/build.rs` 在 swift 构建后
+  把它们拷到 `gen/apple/AetherLib/`（固定位置，不进仓库；
+  产物目录布局随 Xcode 版本变，递归按名字找，跳过 checkouts/ 里的
+  xcframework 原包；找不到直接 panic，不链过期 framework），
+  `build-ios-unsigned.sh` 再把该目录加进 `FRAMEWORK_SEARCH_PATHS` /
+  `LIBRARY_SEARCH_PATHS`，`OTHER_LDFLAGS` 加 `-ldovi`（framework
+  靠 Swift 代码的 auto-link 指令拉进来，`libdovi.a` 是 C 库、没有
+  auto-link，必须显式加），xcodebuild 之后把 9 个 framework 嵌进
+  `.app/Frameworks/`（`cp -RP` 保留 framework 里的符号链接；
+  `libdovi.a` 是静态库、已链进主程序，不用嵌）。
 - **接入形态**：源码 SwiftPM 包；FFmpeg 以预编译动态 framework 随
   包分发（FFmpegBuild，约 10.5MB）；整包增量估计 11–15MB，集成
   后以实测 IPA 为准。只 link `AetherEngine` product；SMB 播放用的
