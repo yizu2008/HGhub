@@ -131,8 +131,8 @@ fn stage_aether_frameworks(manifest_dir: &Path) {
         .join("swift-rs")
         .join("NativePlugins");
     let mut frameworks: Vec<PathBuf> = Vec::new();
-    let mut dovi: Option<PathBuf> = None;
-    fn walk(dir: &Path, frameworks: &mut Vec<PathBuf>, dovi: &mut Option<PathBuf>) {
+    let mut dovis: Vec<PathBuf> = Vec::new();
+    fn walk(dir: &Path, frameworks: &mut Vec<PathBuf>, dovis: &mut Vec<PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
         };
@@ -142,23 +142,49 @@ fn stage_aether_frameworks(manifest_dir: &Path) {
             if name.starts_with("AetherLib") && name.ends_with(".framework") {
                 frameworks.push(entry.path());
             } else if name == "libdovi.a" {
-                *dovi = Some(entry.path());
+                dovis.push(entry.path());
             } else if ft.is_dir() && name != "checkouts" {
-                walk(&entry.path(), frameworks, dovi);
+                walk(&entry.path(), frameworks, dovis);
             }
         }
     }
-    walk(&swift_root, &mut frameworks, &mut dovi);
+    walk(&swift_root, &mut frameworks, &mut dovis);
     if frameworks.is_empty() {
         panic!(
             "AetherEngine framework 未找到：swift build 产物目录 {} 下没有 AetherLib*.framework",
             swift_root.display()
         );
     }
-    let Some(dovi) = dovi else {
+    // framework 与 libdovi.a 在构建树里不止一份（xcframework 解包后
+    // 各 slice、宿主构建产物里都有）；产物目录是 framework 所在的那
+    // 个目录（9 个都在同一目录），libdovi.a 必须取同一目录下的那份
+    // （iOS slice）。直接取遍历到的最后一
+    // 份会拿到 macOS slice（150 第四轮 CI 就是这么挂的：ld 报
+    // libdovi.a built for 'macOS'）。
+    let mut by_dir: Vec<(PathBuf, usize)> = Vec::new();
+    for fw in &frameworks {
+        let dir = fw.parent().unwrap().to_path_buf();
+        if let Some(slot) = by_dir.iter_mut().find(|(d, _)| *d == dir) {
+            slot.1 += 1;
+        } else {
+            by_dir.push((dir, 1));
+        }
+    }
+    by_dir.sort_by(|a, b| b.1.cmp(&a.1));
+    let (products_dir, _) = by_dir.into_iter().next().unwrap();
+    let frameworks: Vec<PathBuf> = frameworks
+        .into_iter()
+        .filter(|fw| fw.parent().unwrap() == products_dir)
+        .collect();
+    let Some(dovi) = dovis
+        .iter()
+        .find(|d| d.parent().unwrap() == products_dir)
+        .cloned()
+    else {
         panic!(
-            "libdovi.a 未找到：swift build 产物目录 {} 下没有 libdovi.a",
-            swift_root.display()
+            "libdovi.a 未找到：framework 所在目录 {} 下没有 libdovi.a（找到的候选：{:?}）",
+            products_dir.display(),
+            dovis
         );
     };
     // gen/ 已在 .gitignore 里，staging 不会进仓库；每次先清掉再拷，

@@ -799,7 +799,12 @@ Vincent Herbst 的独立开源引擎，不是 MDK 改名。
   靠 Swift 代码的 auto-link 指令拉进来，`libdovi.a` 是 C 库、没有
   auto-link，必须显式加），xcodebuild 之后把 9 个 framework 嵌进
   `.app/Frameworks/`（`cp -RP` 保留 framework 里的符号链接；
-  `libdovi.a` 是静态库、已链进主程序，不用嵌）。
+  `libdovi.a` 是静态库、已链进主程序，不用嵌）。**framework 与
+  `libdovi.a` 在构建树里不止一份**（xcframework 解包后各 slice、
+  宿主构建产物里都有）：staging 以 framework 所在的目录为锚
+  （9 个都在同一目录），`libdovi.a` 只取同一目录下的那份（iOS
+  slice）；直接取遍历到的最后一份会拿到 macOS slice（150 第四
+  轮 CI 就是这么挂的：ld 报 `libdovi.a built for 'macOS'`）。
 - **接入形态**：源码 SwiftPM 包；FFmpeg 以预编译动态 framework 随
   包分发（FFmpegBuild，约 10.5MB）；整包增量估计 11–15MB，集成
   后以实测 IPA 为准。只 link `AetherEngine` product；SMB 播放用的
