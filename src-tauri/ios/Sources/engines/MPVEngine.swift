@@ -8,8 +8,13 @@
 // 差别在接入方式——render API 由 App 自己掌控渲染循环，不依赖 wid
 // 的层尺寸/上屏时序（133/134 的黑画面就是 wid 时序问题）。
 // UZN 的做法还搬了两条（行为级重实现，没抄它闭源代码）：
-// （1）hwdec 回退：硬解 videotoolbox 在 N 秒内出不了画面就自动切
+// （1）hwdec 回退：硬解在 N 秒内出不了画面就自动切
 // hwdec=no 软解重播（UZN 叫 hwdecRestoreRounds）；
+// 起始用 videotoolbox-copy（v0.0.145）：直接 videotoolbox 时，
+// iOS 的 VideoToolbox→OpenGL 互操作把 UV 平面建成
+// GL_LUMINANCE_ALPHA，libplacebo 按 RG 采样，V 读成了 U，
+// 画面整体发绿（144 真机：皮肤绿、紫色变品红）；copy 版把帧拷
+// 回系统内存再上传，绕过这条路，仍是硬件解码。
 // （2）打开失败时明确报错（渲染上下文建不起来、OpenGL ES 不可用、
 // 初始化失败等），不静默卡住。
 // DV 那条没搬：mpv 0.41.0 源码里没有 --dolby-vision-profile 这个
@@ -420,12 +425,13 @@ final class MPVEngine: NSObject, NativePlayerEngine {
   private var openURLHost: String = ""
   private var eventsDrainedTotal: Int = 0
 
-  // hwdec 回退（v0.0.142，UZN 的做法）：硬解 videotoolbox 在 8 秒内
+  // hwdec 回退（v0.0.142，UZN 的做法）：硬解在 8 秒内
   // 出不了画面（有数据、有时长、就是没视频轨）就自动切 hwdec=no 软解
   // 重播一次。只触发一次；触发后 hwdecFallback=true，写进诊断行。
+  // 起始硬解是 videotoolbox-copy（v0.0.145，见 open() 处注释）。
   private var currentURL: URL?
   private var loadfileAt: Date?
-  private var hwdecMode = "videotoolbox"
+  private var hwdecMode = "videotoolbox-copy"
   private var hwdecFallbackDone = false
   private var hwdecFallback = false
 
@@ -494,7 +500,7 @@ final class MPVEngine: NSObject, NativePlayerEngine {
     loadfileResult = -999
     renderResult = -999
     currentURL = url
-    hwdecMode = "videotoolbox"
+    hwdecMode = "videotoolbox-copy"
     hwdecFallbackDone = false
     hwdecFallback = false
     guard let handle = api.create() else {
@@ -538,9 +544,13 @@ final class MPVEngine: NSObject, NativePlayerEngine {
     // 无害（render 后端由 render context 的 api_type 定）。
     api.setOptionString(handle, "vo", "libmpv")
     api.setOptionString(handle, "gpu-api", "opengl")
-    // v0.0.142：硬解 videotoolbox（H.264/HEVC 硬解；AV1 等走 dav1d
-    // 软解）。出不了画面时由下面的 hwdec 回退切软解重播。
-    api.setOptionString(handle, "hwdec", "videotoolbox")
+    // v0.0.145：硬解用 videotoolbox-copy（仍是 VideoToolbox 硬解，
+    // H.264/HEVC；AV1 等走 dav1d 软解），只是解完把帧拷回系统内存
+    // 再上传。不用直接 videotoolbox：144 真机发绿——iOS 的
+    // VideoToolbox→OpenGL 互操作（mpv hwdec_ios_gl.m）把 UV 平面
+    // 建成 GL_LUMINANCE_ALPHA，libplacebo 按 RG 采样，V 读成了 U；
+    // copy 版绕过这条互操作。出不了画面时由下面的 hwdec 回退切软解重播。
+    api.setOptionString(handle, "hwdec", "videotoolbox-copy")
     api.setOptionString(handle, "subs-match-os-language", "yes")
     api.setOptionString(handle, "subs-fallback", "yes")
     api.setOptionString(handle, "video-rotate", "no")
@@ -643,7 +653,7 @@ final class MPVEngine: NSObject, NativePlayerEngine {
   }
 
   /// hwdec 回退：loadfile 8 秒后仍没视频轨（有数据、有时长、播着），
-  /// 且硬解还是 videotoolbox，就切 hwdec=no 软解重播一次。
+  /// 且硬解还是 videotoolbox-copy，就切 hwdec=no 软解重播一次。
   /// 只触发一次；纯音频/还没拿到数据时不触发。
   private func maybeFallbackHwdec(state: NativePlayerState) {
     guard !hwdecFallbackDone,
@@ -651,7 +661,7 @@ final class MPVEngine: NSObject, NativePlayerEngine {
           let handle = mpv,
           let url = currentURL,
           Date().timeIntervalSince(at) > 8,
-          hwdecMode == "videotoolbox",
+          hwdecMode == "videotoolbox-copy",
           state.playing, state.duration > 0, videoW == 0
     else { return }
     hwdecFallbackDone = true
@@ -762,7 +772,7 @@ final class MPVEngine: NSObject, NativePlayerEngine {
     eventsDrainedTotal = 0
     currentURL = nil
     loadfileAt = nil
-    hwdecMode = "videotoolbox"
+    hwdecMode = "videotoolbox-copy"
     hwdecFallbackDone = false
     hwdecFallback = false
     videoW = 0
