@@ -528,7 +528,15 @@ final class MPVEngine: NSObject, NativePlayerEngine {
       return
     }
 
-    api.setOptionString(handle, "vo", "gpu-next")
+    // vo 必须是 "libmpv"，不能写 "gpu-next"：render API 的 VO 驱动
+    // 名就是 libmpv，播放核建 VO 时才会接上前面建好的 render
+    // context（OpenGL 后端、app 自己的 FBO）。写 gpu-next 会让播放
+    // 核另建一个独立 gpu-next VO，它按 gpu-context=auto 去探
+    // vulkan/MoltenVK、要 WinID（原生窗口），render API 路上没有
+    // WinID，建不起来——143 真机就是这么死的：vo 建失败、
+    // "Video: no video"，只剩 AAC 音频在走。gpu-api=opengl 留着
+    // 无害（render 后端由 render context 的 api_type 定）。
+    api.setOptionString(handle, "vo", "libmpv")
     api.setOptionString(handle, "gpu-api", "opengl")
     // v0.0.142：硬解 videotoolbox（H.264/HEVC 硬解；AV1 等走 dav1d
     // 软解）。出不了画面时由下面的 hwdec 回退切软解重播。

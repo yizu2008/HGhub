@@ -78,7 +78,7 @@ pill（v0.0.22 删掉），入口只在更多菜单里。
 | AVPlayer | H.264/HEVC + MP4/HLS | 系统自带，无许可证问题 | 零依赖，`AVPlayerViewController` 全屏 | 不吃 MKV/FLV/WebM/VP9/AV1，不支持 DASH，ASS 只能走 HLS 内嵌字幕 |
 | MDK | FFmpeg 底，格式宽，ASS 需可选 `ass.framework` | key 制：开源 / 非商业免费，找作者申请 key；无 key 且 SDK 过期时最后一帧可能出现二维码水印 | CocoaPods `pod 'mdk'` 或 SPM `swift-mdk` | key 要另外申请；`setDecoders` 目前配 `VT / FFmpeg / dav1d` |
 | KSPlayer | AVPlayer + FFmpeg，HDR / Dolby Vision / Atmos 好 | **默认 GPL-3.0，要求开源自家代码**；HGhub 是 PolyForm Noncommercial，**不能直接按 GPL 发行**；完整格式 / 全量 ASS / AV1 硬解 / FFmpeg 8.1 在付费 LGPL 版（联系 kingslay@icloud.com），免费 GPL 版是 FFmpeg 6.1.0 且功能受限 | SPM `kingslay/KSPlayer`，`KSOptions.secondPlayerType = KSMEPlayer.self` 切 FFmpeg 路 | 没拿到付费 LGPL 之前不要用它发正式包 |
-| mpv（libmpv） | 格式 / ASS 最强 | libmpv 是 GPL-2.0+、FFmpeg 是 LGPL——与 MPVKit 时代同一批库的另一种打包，发行口径不变（见下）；不要用含 Samba 的 GPL 全量版 | 已接：原生 dylib（`src-tauri/ios/mpv-dylibs/`，mpv 0.41.0 + FFmpeg 8.1-dev 一代，27 个），v0.0.142 起替代 MPVKit。渲染走 libmpv render API + EAGLContext（OpenGL ES），vo=gpu-next + gpu-api=opengl + hwdec=videotoolbox（8 秒不出画面自动回退软解）。0.41.0 起最低 iOS 14.0（应用保持 iOS 14.0 底线，macOS 11） | 最难编，包体最大；render API 在 iOS 上要自己管 GL 上下文与 FBO |
+| mpv（libmpv） | 格式 / ASS 最强 | libmpv 是 GPL-2.0+、FFmpeg 是 LGPL——与 MPVKit 时代同一批库的另一种打包，发行口径不变（见下）；不要用含 Samba 的 GPL 全量版 | 已接：原生 dylib（`src-tauri/ios/mpv-dylibs/`，mpv 0.41.0 + FFmpeg 8.1-dev 一代，27 个），v0.0.142 起替代 MPVKit。渲染走 libmpv render API + EAGLContext（OpenGL ES），vo=libmpv（必须是 libmpv：render API 的 VO 驱动名就是它，写 gpu-next 会让播放核另建独立 gpu-next VO、去探 vulkan/MoltenVK 要 WinID 而建不起来，143 真机就是这么死的）+ hwdec=videotoolbox（8 秒不出画面自动回退软解）。0.41.0 起最低 iOS 14.0（应用保持 iOS 14.0 底线，macOS 11） | 最难编，包体最大；render API 在 iOS 上要自己管 GL 上下文与 FBO |
 
 当前实现状态：
 
