@@ -30,10 +30,14 @@ struct NativePlayerOpenArgs: Decodable {
   var volume: Double
   var muted: Bool
   var title: String?
+  /// mpv 硬件加速（v0.0.146）：true = videotoolbox-copy，false = 软解；
+  /// 缺省 true（旧前端没发这个键时默认硬解）。其它引擎忽略。
+  var hardwareAcceleration: Bool?
 
   enum CodingKeys: String, CodingKey {
     case engine, url, position, rate, volume, muted, title
     case sessionId = "session_id"
+    case hardwareAcceleration = "hardware_acceleration"
   }
 }
 
@@ -137,6 +141,7 @@ protocol NativePlayerEngine: AnyObject {
   var videoSize: CGSize { get }
   func open(
     url: URL, position: Double, rate: Double, volume: Double, muted: Bool, title: String?,
+    hardwareAcceleration: Bool,
     present: @escaping (UIViewController) -> Void,
     completion: @escaping (Result<NativePlayerState, Error>) -> Void
   )
@@ -259,7 +264,7 @@ class NativePlayerPlugin: Plugin {
       next.eventHandler = { [weak self] event in self?.forwardEvent(event) }
       next.open(
         url: url, position: args.position, rate: args.rate, volume: args.volume,
-        muted: args.muted, title: args.title,
+        muted: args.muted, title: args.title, hardwareAcceleration: args.hardwareAcceleration ?? true,
         present: { [weak self] viewController in self?.present(viewController) }
       ) { result in
         switch result {

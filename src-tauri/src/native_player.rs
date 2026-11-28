@@ -114,6 +114,7 @@ fn open_payload(
     volume: f64,
     muted: bool,
     title: Option<String>,
+    hardware_acceleration: bool,
 ) -> Value {
     // 注意：这里的 session_id 是发给 Swift 插件的载荷键名（Swift 侧按
     // snake_case 解），与 Tauri invoke 参数名是两回事。Tauri invoke 默认
@@ -128,6 +129,7 @@ fn open_payload(
         "volume": volume,
         "muted": muted,
         "title": title,
+        "hardware_acceleration": hardware_acceleration,
     })
 }
 
@@ -143,11 +145,12 @@ pub async fn native_player_open(
     volume: f64,
     muted: bool,
     title: Option<String>,
+    hardware_acceleration: bool,
 ) -> Result<NativePlayerState, String> {
     forward(
         &plugin,
         "open",
-        open_payload(engine, url, session_id, position, rate, volume, muted, title),
+        open_payload(engine, url, session_id, position, rate, volume, muted, title, hardware_acceleration),
     )
     .await
 }
@@ -163,8 +166,9 @@ pub fn native_player_open(
     volume: f64,
     muted: bool,
     title: Option<String>,
+    hardware_acceleration: bool,
 ) -> Result<NativePlayerState, String> {
-    let _ = (engine, url, session_id, position, rate, volume, muted, title);
+    let _ = (engine, url, session_id, position, rate, volume, muted, title, hardware_acceleration);
     Err("当前平台不支持原生播放器".into())
 }
 

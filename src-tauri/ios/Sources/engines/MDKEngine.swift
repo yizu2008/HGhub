@@ -46,12 +46,13 @@ final class MDKEngine: NSObject, NativePlayerEngine {
 
   func open(
     url: URL, position: Double, rate: Double, volume: Double, muted: Bool, title: String?,
+    hardwareAcceleration: Bool,
     present: @escaping (UIViewController) -> Void,
     completion: @escaping (Result<NativePlayerState, Error>) -> Void
   ) {
     // MDK 不走倍速/静音参数做首帧控制：rate/volume 在 open 后由前端
     // 的 setRate/setVolume 命令再调；这里只保证起播位置正确。
-    _ = (rate, volume, muted, title)
+    _ = (rate, volume, muted, title, hardwareAcceleration)
     let player = Player()
     // iOS 解码器顺序：先 VideoToolbox 硬解，缺失时回落 FFmpeg 软解，
     // AV1 再回落 dav1d（需链接 dav1d.framework 才生效）。
@@ -133,10 +134,11 @@ final class MDKEngine: NSObject, NativePlayerEngine {
 
   func open(
     url: URL, position: Double, rate: Double, volume: Double, muted: Bool, title: String?,
+    hardwareAcceleration: Bool,
     present: @escaping (UIViewController) -> Void,
     completion: @escaping (Result<NativePlayerState, Error>) -> Void
   ) {
-    _ = (url, position, rate, volume, muted, title, present)
+    _ = (url, position, rate, volume, muted, title, present, hardwareAcceleration)
     completion(
       .failure(
         NativePlayerUnavailableError(message:

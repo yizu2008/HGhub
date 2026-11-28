@@ -45,7 +45,7 @@ export interface FeedProps extends FeedPresentation {
 export default function Feed({media, position, active=true, preparing=false, error="", onRetry, onPosition, onFailure, onPlaying, onStopped, onEnded, onBuffer, onWaiting,
  title="", author="", description="", score, poster:posterUrl, episodeLabel="", qualityLabel, episodeCount=0, favorite=false, onFavorite,
  playIntent=0, seekTo, mode="full", onOpenDetail, onOpenDetailFromStart, panels={}, social, onPanelChange, onBack, onNext, onPrevious, onNextEpisode, onPreviousEpisode, queueIndex=0, total=1, previousPreview, nextPreview}: FeedProps) {
-  const store=useStore(), {muted,setMuted,volume,setVolume,playbackEngine,setPlaybackEngine,pictureMode,setPictureMode}=store;
+  const store=useStore(), {muted,setMuted,volume,setVolume,playbackEngine,setPlaybackEngine,mpvHardwareAcceleration,setMpvHardwareAcceleration,pictureMode,setPictureMode}=store;
   const activeRef = useRef(active); activeRef.current = active;
   const isDesktop=!isMobile, preview=mode==="preview";
   const boxRef=useRef<HTMLDivElement>(null), videoRef=useRef<VideoHandle>(null);
@@ -565,7 +565,7 @@ export default function Feed({media, position, active=true, preparing=false, err
     let lastError = "";
     for (const engine of chain) {
       try {
-        await openNativePlayer({ engine, url: media.url, sessionId: media.sessionId, position: time, rate, volume, muted, title });
+        await openNativePlayer({ engine, url: media.url, sessionId: media.sessionId, position: time, rate, volume, muted, title, hardwareAcceleration: mpvHardwareAcceleration });
         videoRef.current?.pause();
         // 诊断（v0.0.138）：写清到底哪个引擎打开了，免得轮询没输出时分不清
         // 是 mpv 没打开（回落到别的引擎）还是 mpv 打开了但诊断没出来。
@@ -613,7 +613,8 @@ export default function Feed({media, position, active=true, preparing=false, err
       </div>
       <label>播放速度<select aria-label="播放速度" value={rate} onChange={e=>setRate(Number(e.target.value))}>{[.5,.75,1,1.25,1.5,2].map(v=><option key={v} value={v}>{v}×{v===1?" · 正常":""}</option>)}</select></label>
       <label>音量<input aria-label="音量" type="range" min="0" max="1" step=".01" value={muted?0:volume} onChange={e=>{setMuted(false);setVolume(Number(e.target.value));}}/></label>
-      {platform === "ios" && <label>播放内核<select aria-label="播放内核" value={playbackEngine} onChange={e=>setPlaybackEngine(e.target.value as PlaybackEngine)}>{(["webview","avplayer","mdk","ksplayer","mpv","auto"] as const).map(engine=><option key={engine} value={engine}>{playbackEngineLabel(engine)}</option>)}</select></label>}
+      {platform === "ios" && <label>播放内核<select aria-label="播放内核" value={playbackEngine} onChange={e=>setPlaybackEngine(e.target.value as PlaybackEngine)}>{(["webview","avplayer","mpv","auto"] as const).map(engine=><option key={engine} value={engine}>{playbackEngineLabel(engine)}</option>)}</select></label>}
+      {platform === "ios" && <label>硬件加速<input aria-label="硬件加速" type="checkbox" checked={mpvHardwareAcceleration} onChange={e=>setMpvHardwareAcceleration(e.target.checked)}/></label>}
       <label>画面设置<select aria-label="画面设置" value={pictureMode} onChange={e=>setPictureMode(e.target.value as PictureMode)}><option value="fit">适应</option><option value="stretch">拉伸</option><option value="fill">铺满</option><option value="16:9">16:9</option><option value="4:3">4:3</option></select></label>
       {platform === "ios" && playbackEngine !== "webview" && <button onClick={()=>{setPanel(null);void openNative();}}><IPlayF size={19}/>原生播放</button>}
       {platform === "ios" && playUrl && <button onClick={()=>{setPanel(null);void openSenPlayer();}}><IPlayF size={19}/>SenPlayer 播放</button>}

@@ -79,6 +79,7 @@ final class AVPlayerEngine: NSObject, NativePlayerEngine {
 
   func open(
     url: URL, position: Double, rate: Double, volume: Double, muted: Bool, title: String?,
+    hardwareAcceleration: Bool,
     present: @escaping (UIViewController) -> Void,
     completion: @escaping (Result<NativePlayerState, Error>) -> Void
   ) {
@@ -86,7 +87,9 @@ final class AVPlayerEngine: NSObject, NativePlayerEngine {
     self.volume = volume
     self.muted = muted
     // title 在 AVPlayerViewController 上没有展示位，忽略（不影响播放）。
-    _ = title
+    // AVPlayer 没有硬解开关：永远用 VideoToolbox 硬解 H.264/HEVC，
+    // 不支持的格式直接播不了——hardwareAcceleration 在此忽略。
+    _ = (title, hardwareAcceleration)
 
     let asset = AVURLAsset(url: url)
     let item = AVPlayerItem(asset: asset)

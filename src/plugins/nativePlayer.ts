@@ -14,7 +14,7 @@ import { platform } from "../environment";
 // Rust 侧 NativePlayerState 用 rename_all="camelCase" 对齐，前端
 // NativePlayerState 接口声明的也是 videoWidth。
 
-export type NativeEngine = "avplayer" | "mdk" | "ksplayer" | "mpv";
+export type NativeEngine = "avplayer" | "mpv";
 
 export interface NativePlayerOpenOptions {
   engine: NativeEngine;
@@ -25,6 +25,8 @@ export interface NativePlayerOpenOptions {
   volume?: number;
   muted?: boolean;
   title?: string;
+  /** mpv 硬件加速（v0.0.146）：true = videotoolbox-copy，false = 软解；其它引擎忽略。 */
+  hardwareAcceleration?: boolean;
 }
 
 export interface NativePlayerState {
@@ -115,6 +117,7 @@ export function openNativePlayer(options: NativePlayerOpenOptions): Promise<Nati
     volume: options.volume ?? 1,
     muted: options.muted ?? false,
     title: options.title,
+    hardwareAcceleration: options.hardwareAcceleration ?? true,
   });
 }
 

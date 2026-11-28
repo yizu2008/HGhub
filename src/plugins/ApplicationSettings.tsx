@@ -2,7 +2,7 @@ import ProxySettings from "./ProxySettings";
 import CacheClearSettings from "./CacheClearSettings";
 import DebugLogSettings from "./DebugLogSettings";
 import { playbackSources, SourcePicker } from "./ImmersiveHome";
-import { IBack, IChevR, IGrid, ISettings, IMoon, ISun, IVolMute, IPlayF, IRefresh, ILockF, IHeart, IInfo } from "../icons";
+import { IBack, IChevR, ICpu, IGrid, ISettings, IMoon, ISun, IVolMute, IPlayF, IRefresh, ILockF, IHeart, IInfo } from "../icons";
 import type { ReactNode } from "react";
 import { Toggle } from "../components/ui";
 import { useEffect, useState } from "react";
@@ -49,7 +49,8 @@ export default function ApplicationSettings({ onBack }: { onBack: () => void }) 
         <Setting icon={<IVolMute size={16}/>} title="启动时静音" description="每次启动默认静音，下次启动生效"><Toggle label="启动时静音" on={app.muteOnStartup} onChange={app.setMuteOnStartup}/></Setting>
         <Setting icon={<IPlayF size={16}/>} title="自动播放下一条" description="播完后继续下一集或下一部作品"><Toggle label="自动播放下一条" on={host.prefs.autoNext} onChange={autoNext=>host.setPrefs({autoNext})}/></Setting>
         <Setting icon={<IRefresh size={16}/>} title="播放失败后尝试其他播放流" description="尝试当前来源可用的其他播放流"><Toggle label="播放失败后尝试其他播放流" on={host.prefs.playbackFallback} onChange={playbackFallback=>host.setPrefs({playbackFallback})}/></Setting>
-        {app.platform==="ios"&&<Setting icon={<IPlayF size={16}/>} title="播放内核" description="仅 iOS 生效；MDK / KSPlayer / mpv 需打包时装好依赖"><select aria-label="播放内核" value={app.playbackEngine} onChange={e=>app.setPlaybackEngine(e.target.value as PlaybackEngine)}>{(["webview","avplayer","mdk","ksplayer","mpv","auto"] as const).map(engine=><option key={engine} value={engine}>{playbackEngineLabel(engine)}</option>)}</select></Setting>}
+        {app.platform==="ios"&&<Setting icon={<IPlayF size={16}/>} title="播放内核" description="仅 iOS 生效"><select aria-label="播放内核" value={app.playbackEngine} onChange={e=>app.setPlaybackEngine(e.target.value as PlaybackEngine)}>{(["webview","avplayer","mpv","auto"] as const).map(engine=><option key={engine} value={engine}>{playbackEngineLabel(engine)}</option>)}</select></Setting>}
+        {app.platform==="ios"&&<Setting icon={<ICpu size={16}/>} title="硬件加速" description="仅 mpv 播放内核生效；关闭后使用软解（更兼容但更耗电）；下次原生播放生效"><Toggle label="硬件加速" on={app.mpvHardwareAcceleration} onChange={app.setMpvHardwareAcceleration}/></Setting>}
       </Section>
       <Section title="插件与内容">
         <Setting icon={<IRefresh size={16}/>} title="启动时自动检查插件更新" description="同一地址的自动检查至少间隔 24 小时"><Toggle label="启动时自动检查插件更新" on={host.updates.policy.checkOnStartup} disabled={clearing} onChange={checkOnStartup=>void updatePolicy({checkOnStartup})}/></Setting>

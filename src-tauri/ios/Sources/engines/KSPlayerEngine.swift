@@ -48,12 +48,13 @@ final class KSPlayerEngine: NSObject, NativePlayerEngine {
 
   func open(
     url: URL, position: Double, rate: Double, volume: Double, muted: Bool, title: String?,
+    hardwareAcceleration: Bool,
     present: @escaping (UIViewController) -> Void,
     completion: @escaping (Result<NativePlayerState, Error>) -> Void
   ) {
     // KSPlayer 的倍速/音量由前端 open 后的 setRate/setVolume 命令再调，
     // 这里只保证起播位置正确。
-    _ = (rate, volume, muted, title)
+    _ = (rate, volume, muted, title, hardwareAcceleration)
     // FFmpeg 路：默认的 AVPlayer 路只吃苹果支持的格式，KSMEPlayer
     // 才能吃全格式；没这行 MKV/FLV 这类源会直接播不了。
     KSOptions.secondPlayerType = KSMEPlayer.self
@@ -138,10 +139,11 @@ final class KSPlayerEngine: NSObject, NativePlayerEngine {
 
   func open(
     url: URL, position: Double, rate: Double, volume: Double, muted: Bool, title: String?,
+    hardwareAcceleration: Bool,
     present: @escaping (UIViewController) -> Void,
     completion: @escaping (Result<NativePlayerState, Error>) -> Void
   ) {
-    _ = (url, position, rate, volume, muted, title, present)
+    _ = (url, position, rate, volume, muted, title, present, hardwareAcceleration)
     completion(
       .failure(
         NativePlayerUnavailableError(message:

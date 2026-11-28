@@ -8,19 +8,19 @@
 // 差别在接入方式——render API 由 App 自己掌控渲染循环，不依赖 wid
 // 的层尺寸/上屏时序（133/134 的黑画面就是 wid 时序问题）。
 // UZN 的做法还搬了两条（行为级重实现，没抄它闭源代码）：
-// （1）hwdec 回退：硬解在 N 秒内出不了画面就自动切
-// hwdec=no 软解重播（UZN 叫 hwdecRestoreRounds）；
-// 起始用 videotoolbox-copy（v0.0.145）：直接 videotoolbox 时，
+// （1）hwdec：硬解用 videotoolbox-copy（v0.0.145）：直接 videotoolbox 时，
 // iOS 的 VideoToolbox→OpenGL 互操作把 UV 平面建成
 // GL_LUMINANCE_ALPHA，libplacebo 按 RG 采样，V 读成了 U，
 // 画面整体发绿（144 真机：皮肤绿、紫色变品红）；copy 版把帧拷
 // 回系统内存再上传，绕过这条路，仍是硬件解码。
+// 硬解/软解只由硬件加速开关控制（v0.0.146）：开 = videotoolbox-copy，
+// 关 = hwdec=no；8 秒自动切软解回退已取消（UZN 叫 hwdecRestoreRounds）。
 // （2）打开失败时明确报错（渲染上下文建不起来、OpenGL ES 不可用、
 // 初始化失败等），不静默卡住。
 // DV 那条没搬：mpv 0.41.0 源码里没有 --dolby-vision-profile 这个
 // 选项（已查 video/out + options），UZN 的 MPVForceDolbyVisionProfile5
 // 是它自己的逻辑、静态看不出它到底改了 mpv 哪个设置，没法照搬；
-// DV 片若硬解失败会走上面的 hwdec 回退进软解，日志里能看到编码。
+// DV 片硬解播不了时，把硬件加速开关关掉走软解，日志里能看到编码。
 // 详见 docs/developers/native-players.md 与
 // ~/workspace/tmp/uzn/ANALYSIS.md。
 //
@@ -399,6 +399,8 @@ final class MPVEngine: NSObject, NativePlayerEngine {
   private var renderContext: OpaquePointer?
   private var glView: MPVGLView?
   private var container: UIViewController?
+  /// 控制层（v0.0.146）：原生 UIKit 覆盖层，见 MPVControlOverlay.swift。
+  private var overlay: MPVControlOverlay?
   private var timer: Timer?
   private var eventQueue = DispatchQueue(label: "mpv-event", qos: .userInitiated)
   private var didFireEnded = false
@@ -425,15 +427,10 @@ final class MPVEngine: NSObject, NativePlayerEngine {
   private var openURLHost: String = ""
   private var eventsDrainedTotal: Int = 0
 
-  // hwdec 回退（v0.0.142，UZN 的做法）：硬解在 8 秒内
-  // 出不了画面（有数据、有时长、就是没视频轨）就自动切 hwdec=no 软解
-  // 重播一次。只触发一次；触发后 hwdecFallback=true，写进诊断行。
-  // 起始硬解是 videotoolbox-copy（v0.0.145，见 open() 处注释）。
-  private var currentURL: URL?
-  private var loadfileAt: Date?
+  // hwdec 模式（v0.0.146）：由硬件加速开关决定，open() 里按开关赋值
+  // （开 = videotoolbox-copy，关 = no）；诊断行里写出当前模式。
+  // 8 秒自动切软解已取消（v0.0.146）：硬解/软解只由开关控制。
   private var hwdecMode = "videotoolbox-copy"
-  private var hwdecFallbackDone = false
-  private var hwdecFallback = false
 
   /// 分辨率：dwidth/dheight（mpv 实际显示尺寸），没拿到就报未知（.zero）。
   var videoSize: CGSize { CGSize(width: videoW, height: videoH) }
@@ -459,7 +456,7 @@ final class MPVEngine: NSObject, NativePlayerEngine {
       mpvVoConfigured: getFlag("vo-configured"),
       mpvPausedForCache: getFlag("paused-for-cache"),
       mpvEventsDrained: eventsDrainedTotal,
-      mpvOpenDiag: "init=\(initResult) loadfile=\(loadfileResult) render=\(renderResult) hwdec=\(hwdecMode)\(hwdecFallback ? "(fallback)" : "") url=\(openURLScheme)://\(openURLHost)")
+      mpvOpenDiag: "init=\(initResult) loadfile=\(loadfileResult) render=\(renderResult) hwdec=\(hwdecMode) url=\(openURLScheme)://\(openURLHost)")
   }
 
   /// 引擎被插件丢掉也没调 close() 时也要把 libmpv 句柄销毁，
@@ -481,10 +478,10 @@ final class MPVEngine: NSObject, NativePlayerEngine {
 
   func open(
     url: URL, position: Double, rate: Double, volume: Double, muted: Bool, title: String?,
+    hardwareAcceleration: Bool,
     present: @escaping (UIViewController) -> Void,
     completion: @escaping (Result<NativePlayerState, Error>) -> Void
   ) {
-    _ = title
     // 懒加载：到这里（用户选了 mpv）才 dlopen libmpv.2.dylib。
     // 启动时不走这里，所以启动完全不受 mpv 影响。
     let loaded = loadMPVAPI()
@@ -499,10 +496,8 @@ final class MPVEngine: NSObject, NativePlayerEngine {
     initResult = -999
     loadfileResult = -999
     renderResult = -999
-    currentURL = url
-    hwdecMode = "videotoolbox-copy"
-    hwdecFallbackDone = false
-    hwdecFallback = false
+    // v0.0.146 硬件加速开关：开 = videotoolbox-copy，关 = 软解（hwdec=no）。
+    hwdecMode = hardwareAcceleration ? "videotoolbox-copy" : "no"
     guard let handle = api.create() else {
       completion(.failure(NativePlayerUnavailableError(message: "mpv 创建失败")))
       return
@@ -549,8 +544,9 @@ final class MPVEngine: NSObject, NativePlayerEngine {
     // 再上传。不用直接 videotoolbox：144 真机发绿——iOS 的
     // VideoToolbox→OpenGL 互操作（mpv hwdec_ios_gl.m）把 UV 平面
     // 建成 GL_LUMINANCE_ALPHA，libplacebo 按 RG 采样，V 读成了 U；
-    // copy 版绕过这条互操作。出不了画面时由下面的 hwdec 回退切软解重播。
-    api.setOptionString(handle, "hwdec", "videotoolbox-copy")
+    // copy 版绕过这条互操作。硬解播不了时，把硬件加速开关关掉走软解。
+    // v0.0.146：开关关时 hwdecMode 已是 "no"，这里直接传 hwdecMode。
+    api.setOptionString(handle, "hwdec", hwdecMode)
     api.setOptionString(handle, "subs-match-os-language", "yes")
     api.setOptionString(handle, "subs-fallback", "yes")
     api.setOptionString(handle, "video-rotate", "no")
@@ -617,6 +613,22 @@ final class MPVEngine: NSObject, NativePlayerEngine {
       engine.readEvents()
     }, UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()))
 
+    // 控制层（v0.0.146）：原生 UIKit 覆盖层，跟 WebView 内嵌看齐——
+    // 顶栏（标题 + 分辨率 + 关闭）+ 底栏（播放/暂停、进度、静音、
+    // 倍速、旋转）+ 手势（单击显隐、双击播放/暂停、左半屏竖滑亮度、
+    // 右半屏竖滑系统音量、横滑快进/快退）+ 按分辨率自动横竖屏。
+    // AVPlayer 用系统控制条，不走这里。
+    let overlay = MPVControlOverlay(engine: self, title: title)
+    overlay.translatesAutoresizingMaskIntoConstraints = false
+    container.view.addSubview(overlay)
+    NSLayoutConstraint.activate([
+      overlay.topAnchor.constraint(equalTo: container.view.topAnchor),
+      overlay.bottomAnchor.constraint(equalTo: container.view.bottomAnchor),
+      overlay.leadingAnchor.constraint(equalTo: container.view.leadingAnchor),
+      overlay.trailingAnchor.constraint(equalTo: container.view.trailingAnchor),
+    ])
+    self.overlay = overlay
+
     // 回环 session 地址直接播：上游头/Range/密钥由 Rust 代理处理，
     // 不用再给 mpv 拼 http-header-fields。
     // loadfile 只是把命令排队（异步），返回 <0 才是参数级错误。
@@ -626,7 +638,6 @@ final class MPVEngine: NSObject, NativePlayerEngine {
       completion(.failure(NativePlayerUnavailableError(message: "mpv 打开失败")))
       return
     }
-    loadfileAt = Date()
     if position > 0 {
       _ = command(handle, "seek", args: ["\(position)", "absolute"])
     }
@@ -643,33 +654,13 @@ final class MPVEngine: NSObject, NativePlayerEngine {
       guard let self = self else { return }
       let state = self.currentState
       self.eventHandler?(.time(position: state.position, duration: state.duration, videoSize: self.videoSize))
-      self.maybeFallbackHwdec(state: state)
+      self.overlay?.refresh(state: state)
       if !self.didFireEnded && state.duration > 0 && state.position >= state.duration - 0.3 {
         self.didFireEnded = true
         self.eventHandler?(.ended)
       }
     }
     completion(.success(currentState))
-  }
-
-  /// hwdec 回退：loadfile 8 秒后仍没视频轨（有数据、有时长、播着），
-  /// 且硬解还是 videotoolbox-copy，就切 hwdec=no 软解重播一次。
-  /// 只触发一次；纯音频/还没拿到数据时不触发。
-  private func maybeFallbackHwdec(state: NativePlayerState) {
-    guard !hwdecFallbackDone,
-          let at = loadfileAt,
-          let handle = mpv,
-          let url = currentURL,
-          Date().timeIntervalSince(at) > 8,
-          hwdecMode == "videotoolbox-copy",
-          state.playing, state.duration > 0, videoW == 0
-    else { return }
-    hwdecFallbackDone = true
-    hwdecFallback = true
-    hwdecMode = "no"
-    setStringProperty(handle, "hwdec", "no")
-    loadfileResult = command(handle, "loadfile", args: [url.absoluteString, "replace"])
-    loadfileAt = Date()
   }
 
   /// mpv 发来新帧通知（update 回调，不在回调里调 mpv API，只派发）：
@@ -757,6 +748,9 @@ final class MPVEngine: NSObject, NativePlayerEngine {
     glView?.teardownGL()
     glView?.removeFromSuperview()
     glView = nil
+    overlay?.teardown()
+    overlay?.removeFromSuperview()
+    overlay = nil
     container?.dismiss(animated: true, completion: nil)
     container = nil
     didFireEnded = false
@@ -770,13 +764,17 @@ final class MPVEngine: NSObject, NativePlayerEngine {
     openURLScheme = ""
     openURLHost = ""
     eventsDrainedTotal = 0
-    currentURL = nil
-    loadfileAt = nil
-    hwdecMode = "videotoolbox-copy"
-    hwdecFallbackDone = false
-    hwdecFallback = false
     videoW = 0
     videoH = 0
+  }
+
+  /// 用户点覆盖层的关闭（×）：先拆播放器、再把“已关闭”发回插件，
+  /// 前端据此把最新进度回写并回落 WebView（与 AVPlayer 的 Done 同路）。
+  /// 顺序不能反：先发 .closed 的话插件会把 engine 置 nil、引擎释放，
+  /// close() 里的 dismiss 就跑不到了。
+  func userClose() {
+    close()
+    eventHandler?(.closed)
   }
 
   // MARK: - libmpv 小工具
@@ -799,17 +797,6 @@ final class MPVEngine: NSObject, NativePlayerEngine {
     guard let api = api else { return }
     var data: Int = flag ? 1 : 0
     api.setProperty(handle, name, MPV_FORMAT_FLAG, &data)
-  }
-
-  /// 运行时改一个字符串属性（hwdec 回退用）。MPV_FORMAT_STRING=1，
-  /// data 是 char**（指向 C 字符串指针的指针）。
-  private func setStringProperty(_ handle: OpaquePointer, _ name: String, _ value: String) {
-    guard let api = api else { return }
-    var cValue: [CChar] = Array(value.utf8CString)
-    cValue.withUnsafeMutableBufferPointer { buf in
-      var ptr: UnsafeMutablePointer<CChar>? = buf.baseAddress
-      api.setProperty(handle, name, MPV_FORMAT_STRING, &ptr)
-    }
   }
 
   /// 发一条 mpv 命令（argv 式）；返回 mpv 的错误码（0 成功，负数失败）。

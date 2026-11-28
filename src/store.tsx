@@ -25,21 +25,24 @@ function useApplication() {
   const [muted, setMuted] = useState(muteOnStartup);
   const [theater, setTheater] = useState(false), [fs, setFs] = useState(false), [clean, setClean] = useState(false);
   const [playbackEngine, setPlaybackEngine] = useState<PlaybackEngine>(() => { const v = read<string>("hpp.playbackEngine", DEFAULT_PLAYBACK_ENGINE); return isPlaybackEngine(v) ? v : DEFAULT_PLAYBACK_ENGINE; });
+  /** mpv 硬件加速（v0.0.146）：开 = VideoToolbox 硬解（videotoolbox-copy），
+   * 关 = 软解（hwdec=no）。只影响 mpv 原生播放，下次原生播放生效。 */
+  const [mpvHardwareAcceleration, setMpvHardwareAcceleration] = useState(() => read<boolean>("hpp.mpvHardwareAcceleration", true) !== false);
   const [pictureMode, setPictureMode] = useState<PictureMode>(() => { const v = read<string>("hpp.pictureMode", "fit"); return isPictureMode(v) ? v : "fit"; });
   const [strictSecurity, setStrict] = useState(true), [strictSecurityReady, setSecurityReady] = useState(false), [securityPending, setPending] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
     document.documentElement.classList.toggle("theme-light", theme === "light"); document.documentElement.style.colorScheme = theme;
     document.documentElement.classList.toggle("hg-glass", glass);
-    try { localStorage.setItem("hpp.theme", JSON.stringify(theme)); localStorage.setItem("hpp.glass", JSON.stringify(glass)); localStorage.setItem("hpp.startMuted", JSON.stringify(muteOnStartup)); localStorage.setItem("hpp.volume", JSON.stringify(volume)); localStorage.setItem("hpp.playbackEngine", JSON.stringify(playbackEngine)); localStorage.setItem("hpp.pictureMode", JSON.stringify(pictureMode)); } catch { setError("无法保存应用偏好"); }
-  }, [theme, glass, muteOnStartup, volume, playbackEngine, pictureMode]);
+    try { localStorage.setItem("hpp.theme", JSON.stringify(theme)); localStorage.setItem("hpp.glass", JSON.stringify(glass)); localStorage.setItem("hpp.startMuted", JSON.stringify(muteOnStartup)); localStorage.setItem("hpp.volume", JSON.stringify(volume)); localStorage.setItem("hpp.playbackEngine", JSON.stringify(playbackEngine)); localStorage.setItem("hpp.mpvHardwareAcceleration", JSON.stringify(mpvHardwareAcceleration)); localStorage.setItem("hpp.pictureMode", JSON.stringify(pictureMode)); } catch { setError("无法保存应用偏好"); }
+  }, [theme, glass, muteOnStartup, volume, playbackEngine, mpvHardwareAcceleration, pictureMode]);
   useEffect(() => { void invoke<{strict_security:boolean}>("app_boot").then(v => { setStrict(v.strict_security); setSecurityReady(true); }).catch(() => setError("无法读取网络设置")); }, []);
   const setStrictSecurity = useCallback(async (strict: boolean) => { setPending(true); try { setStrict(await invoke<boolean>("security_set", { strict })); } finally { setPending(false); } }, []);
   const setTab = useCallback((tab: Tab) => { setTabRaw(tab); setStack([]); }, []);
   const push = useCallback((p: PageInput) => setStack(old => [...old, { ...p, key: crypto.randomUUID() }]), []);
   const replace = useCallback((p: PageInput) => setStack(old => [...old.slice(0, -1), { ...p, key: crypto.randomUUID() }]), []);
   const pop = useCallback(() => setStack(old => old.slice(0, -1)), []);
-  return { watching, setWatching, platform, theme, setTheme, glass, setGlass, tab, setTab, stack, push, replace, pop, muteOnStartup, setMuteOnStartup, volume, setVolume, muted, setMuted, theater, setTheater, fs, setFs, clean, setClean, playbackEngine, setPlaybackEngine, pictureMode, setPictureMode, strictSecurity, strictSecurityReady, securityPending, setStrictSecurity, error };
+  return { watching, setWatching, platform, theme, setTheme, glass, setGlass, tab, setTab, stack, push, replace, pop, muteOnStartup, setMuteOnStartup, volume, setVolume, muted, setMuted, theater, setTheater, fs, setFs, clean, setClean, playbackEngine, setPlaybackEngine, mpvHardwareAcceleration, setMpvHardwareAcceleration, pictureMode, setPictureMode, strictSecurity, strictSecurityReady, securityPending, setStrictSecurity, error };
 }
 const Context = createContext<ReturnType<typeof useApplication>>(null!);
 export const useStore = () => useContext(Context);

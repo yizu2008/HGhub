@@ -56,12 +56,14 @@ C 符号名（`init_plugin_native_player` / `init_plugin_orientation`）
 ## 引擎选择
 
 存在 store 的 `playbackEngine`（localStorage `hpp.playbackEngine`），
-默认 `"webview"`。可选：`webview`、`avplayer`、`mdk`、`ksplayer`、`mpv`、
-`auto`。设置页已接：`src/plugins/ApplicationSettings.tsx` 的“播放”区有
+默认 `"webview"`。可选：`webview`、`avplayer`、`mpv`、
+`auto`。v0.0.146 起 MDK / KSPlayer 不再出现在选择里：依赖没装，
+点了只会报“未接入”；引擎替身代码还在，装好依赖再加回来。
+设置页已接：`src/plugins/ApplicationSettings.tsx` 的“播放”区有
 “播放内核”选择器，只在 iOS 显示，非 iOS 平台不显示（原生引擎只支持 iOS）。
 
 `auto` 的 fallback 链（`src/plugins/playbackEngine.ts`，纯函数）：
-AVPlayer → MDK → KSPlayer → mpv → 回落 WebView。
+AVPlayer → mpv → 回落 WebView。
 指定某个引擎时只试它，失败也回落 WebView。
 
 选引擎有两个入口，共用同一个 store（`playbackEngine` /
@@ -78,7 +80,7 @@ pill（v0.0.22 删掉），入口只在更多菜单里。
 | AVPlayer | H.264/HEVC + MP4/HLS | 系统自带，无许可证问题 | 零依赖，`AVPlayerViewController` 全屏 | 不吃 MKV/FLV/WebM/VP9/AV1，不支持 DASH，ASS 只能走 HLS 内嵌字幕 |
 | MDK | FFmpeg 底，格式宽，ASS 需可选 `ass.framework` | key 制：开源 / 非商业免费，找作者申请 key；无 key 且 SDK 过期时最后一帧可能出现二维码水印 | CocoaPods `pod 'mdk'` 或 SPM `swift-mdk` | key 要另外申请；`setDecoders` 目前配 `VT / FFmpeg / dav1d` |
 | KSPlayer | AVPlayer + FFmpeg，HDR / Dolby Vision / Atmos 好 | **默认 GPL-3.0，要求开源自家代码**；HGhub 是 PolyForm Noncommercial，**不能直接按 GPL 发行**；完整格式 / 全量 ASS / AV1 硬解 / FFmpeg 8.1 在付费 LGPL 版（联系 kingslay@icloud.com），免费 GPL 版是 FFmpeg 6.1.0 且功能受限 | SPM `kingslay/KSPlayer`，`KSOptions.secondPlayerType = KSMEPlayer.self` 切 FFmpeg 路 | 没拿到付费 LGPL 之前不要用它发正式包 |
-| mpv（libmpv） | 格式 / ASS 最强 | libmpv 是 GPL-2.0+、FFmpeg 是 LGPL——与 MPVKit 时代同一批库的另一种打包，发行口径不变（见下）；不要用含 Samba 的 GPL 全量版 | 已接：原生 dylib（`src-tauri/ios/mpv-dylibs/`，mpv 0.41.0 + FFmpeg 8.1-dev 一代，27 个），v0.0.142 起替代 MPVKit。渲染走 libmpv render API + EAGLContext（OpenGL ES），vo=libmpv（必须是 libmpv：render API 的 VO 驱动名就是它，写 gpu-next 会让播放核另建独立 gpu-next VO、去探 vulkan/MoltenVK 要 WinID 而建不起来，143 真机就是这么死的）+ hwdec=videotoolbox-copy（v0.0.145 起：直接 videotoolbox 会发绿，见下；8 秒不出画面自动回退软解）。0.41.0 起最低 iOS 14.0（应用保持 iOS 14.0 底线，macOS 11） | 最难编，包体最大；render API 在 iOS 上要自己管 GL 上下文与 FBO |
+| mpv（libmpv） | 格式 / ASS 最强 | libmpv 是 GPL-2.0+、FFmpeg 是 LGPL——与 MPVKit 时代同一批库的另一种打包，发行口径不变（见下）；不要用含 Samba 的 GPL 全量版 | 已接：原生 dylib（`src-tauri/ios/mpv-dylibs/`，mpv 0.41.0 + FFmpeg 8.1-dev 一代，27 个），v0.0.142 起替代 MPVKit。渲染走 libmpv render API + EAGLContext（OpenGL ES），vo=libmpv（必须是 libmpv：render API 的 VO 驱动名就是它，写 gpu-next 会让播放核另建独立 gpu-next VO、去探 vulkan/MoltenVK 要 WinID 而建不起来，143 真机就是这么死的）+ hwdec=videotoolbox-copy（v0.0.145 起：直接 videotoolbox 会发绿，见下；硬解/软解由硬件加速开关控制，v0.0.146）。0.41.0 起最低 iOS 14.0（应用保持 iOS 14.0 底线，macOS 11） | 最难编，包体最大；render API 在 iOS 上要自己管 GL 上下文与 FBO |
 
 当前实现状态：
 
@@ -88,7 +90,8 @@ pill（v0.0.22 删掉），入口只在更多菜单里。
   没装走 `#else` 分支——`open` 直接失败，报错里写清缺哪个依赖、怎么装，
   不留“能打开但播不了”的空实现。`#if` 分支里的方法名是按各家 README 所写，
   第一次在 Mac 上编时以接入的依赖版本为准在构建时校验（见下）。
-- **mpv 已接线（懒加载，真机已测、画面待修）**：
+- **mpv 已接线（懒加载，真机已测：v0.0.145 画面正常、有声、双扬声器；
+  v0.0.146 起有原生控制层）**：
   原生 dylib（v0.0.142 起，`src-tauri/ios/mpv-dylibs/`，mpv 0.41.0 +
   FFmpeg 8.1-dev 一代，27 个，替代 MPVKit），
   `engines/MPVEngine.swift` 不 `import Libmpv`，改在用户选 mpv 点播放
@@ -157,17 +160,17 @@ pill（v0.0.22 删掉），入口只在更多菜单里。
   打包时校验：目录里是 27 个 dylib；每个都是 arm64 Mach-O dylib；
   install_name 是 `@rpath/<名>`；libmpv.2.dylib 导出 `_mpv_create`
   与 6 个 render API 符号。
-  hwdec 回退（v0.0.142，UZN 的做法）：硬解在 loadfile
-  8 秒后仍没视频轨（有数据、有时长、播着）就自动切 hwdec=no 软解
-  重播一次，只触发一次，诊断行里记 `hwdec=no(fallback)`。起始硬解
-  是 videotoolbox-copy（v0.0.145）：直接 videotoolbox 时，iOS 的
+  硬解用 videotoolbox-copy（v0.0.145）：直接 videotoolbox 时，iOS 的
   VideoToolbox→OpenGL 互操作（mpv `hwdec_ios_gl.m`）把 UV 平面建成
   GL_LUMINANCE_ALPHA（ES3 下 texture cache 拒 GL_RG、报 -6683），
   libplacebo 按 RG 采样，V 读成了 U，144 真机画面整体发绿；copy 版
-  把帧拷回系统内存再上传，绕过这条互操作，仍是硬件解码。DV 那条
-  没搬：mpv 0.41.0 源码里没有 `--dolby-vision-profile` 这个选项，
+  把帧拷回系统内存再上传，绕过这条互操作，仍是硬件解码。硬解/软解
+  只由硬件加速开关控制（v0.0.146，见下）：开 = videotoolbox-copy，
+  关 = hwdec=no；8 秒自动切软解回退（v0.0.142 起，UZN 的做法）已取消。
+  DV 那条没搬：mpv 0.41.0 源码里没有 `--dolby-vision-profile` 这个选项，
   UZN 的 MPVForceDolbyVisionProfile5 是它自己的逻辑、静态看不出
-  它到底改了 mpv 哪个设置，没法照搬；DV 片若硬解失败会走回退进软解。
+  它到底改了 mpv 哪个设置，没法照搬；DV 片硬解播不了时，把硬件加速
+  开关关掉走软解。
   真机播放（v0.0.133/134 的结论已收回，2026-11-27）：那几次点的
   都是选集、走 WebView 内嵌播放，mpv 一次都没跑起来——“有声、进度
   走、画面全黑”是 WebView 硬解失败的老问题，不是 mpv 的表现；134
@@ -668,6 +671,66 @@ bash scripts/build-ios-unsigned.sh 0.0.4
   用户再转手机，系统仍可按设备方向转回来；AppDelegate 级的方向
   锁定没做。另外 iOS 上 `set_orientation(false)` 是切回竖屏，与
   Android 的“恢复之前方向”语义不同。
+
+## mpv 原生控制层（v0.0.146）
+
+v0.0.145 之前 mpv 原生是裸全屏：只有画面，没有任何控制（连关闭
+按钮都没有），亮度/音量手势也只在详情页 WebView 里、原生全屏盖住
+后失效。控制层是原生 UIKit 覆盖层
+（`src-tauri/ios/Sources/engines/MPVControlOverlay.swift`），由
+`MPVEngine.open()` 加进容器、0.5s 的状态轮询刷新，`close()` 时拆
+掉；AVPlayer 用系统控制条，不走这里。
+
+- 顶栏：关闭（×）+ 标题（open 时前端传的 `title`，以前被 `_ = title`
+  丢掉）+ 分辨率角标（`videoWidth×videoHeight`，与 AVPlayerEngine 的
+  同一款式，尺寸未知时隐藏；控制条显隐时跟着走，不另设 3 秒定时器）。
+- 底栏：播放/暂停、当前时间 / 总时长、进度条（拖动快进/快退，松手
+  才 seek）、静音、倍速（1 → 1.25 → 1.5 → 2 → 0.5 → 0.75 循环）、
+  旋转。进度条拖动时 0.5s 刷新不抢滑块位置（量程照常跟）。
+- 显隐：单击视频区切换显示/隐藏；播着时 3 秒无操作自动藏，暂停时
+  一直显示（与 WebView 的 PlayerControls visible 规则一致）。
+- 手势（只认视频区域，控制条上的触摸交给按钮和滑块）：双击播放/
+  暂停；左半屏竖滑调亮度（`UIScreen.main.brightness`，下限 0.05）、
+  右半屏竖滑调系统音量（藏起来的 `MPVolumeView` 滑块，与
+  OrientationPlugin 同一套做法，2 秒内用最近一次写的值当基准，避
+  免读回滞后互相抵消）、横滑快进/快退（松手才 seek，拖动中只改指示
+  条和进度条）；中央指示条显示亮度/音量百分比或快进目标时间，1 秒
+  后收起。
+- 方向：首次拿到分辨率就按它自动横竖屏（只做一次）；旋转按钮读实时
+  场景方向切到反面（v0.0.23 的教训：不能读缓存），并提示“已切换到
+  横屏/竖屏”；横屏时隐藏状态栏、竖屏显示（与 WebView 播放页同规则，
+  0.5s 刷新里变了才写）。旋转 API 与 OrientationPlugin.setOrientation
+  同一套（iOS 16+ `requestGeometryUpdate`，iOS 15 KVC 老路）。
+- 关闭：点 × 先拆播放器、再把 `.closed` 发回插件，前端据此把最新
+  进度回写并回落 WebView（与 AVPlayer 的 Done 同路）；顺序不能反，
+  先发 `.closed` 的话插件会把 engine 置 nil、引擎释放，dismiss 就
+  跑不到了。
+
+## mpv 硬件加速开关（v0.0.146）
+
+两处入口，都是同一个开关（store `mpvHardwareAcceleration`，持久化
+`hpp.mpvHardwareAcceleration`，默认开）：
+
+- 详情页 → 更多播放选项 → 硬件加速（复选框，紧跟播放内核下面）；
+- 我的 → 设置 → 播放 → 硬件加速（开关，紧跟播放内核下面，iOS 才显示）。
+
+开关只影响 mpv 原生播放，改动下次原生播放生效（播着的时候改不影响
+当前这一场）：
+
+- 开：`hwdec=videotoolbox-copy`（145 起的默认）——VideoToolbox 硬解，
+  帧拷回内存再上传；H.264/HEVC 走硬解，AV1/VP9 走 dav1d 软解。
+- 关：`hwdec=no`——全软解（FFmpeg/dav1d）；关闭后使用软解（更兼容但更耗电）。
+
+8 秒自动切软解回退已取消（v0.0.146）：硬解/软解只由这个开关控制，不再
+自动切；硬解出不了画面时，手动把开关关掉再播。
+
+透传链：store → `openNativePlayer({…, hardwareAcceleration})` →
+Tauri `native_player_open`（camelCase `hardwareAcceleration`）→ Rust
+`open_payload`（snake_case `hardware_acceleration`）→ Swift
+`NativePlayerOpenArgs.hardwareAcceleration`（可选，缺省 true）→
+`NativePlayerEngine.open(…, hardwareAcceleration:)`。AVPlayer / MDK /
+KSPlayer 的 open 也接了这个参数但直接忽略：AVPlayer 没有硬解开关，
+永远用 VideoToolbox 硬解 H.264/HEVC，不支持的格式直接播不了。
 
 ## 资源下载（播放页，v0.0.33；下载管理 v0.0.34；过期刷新重下 v0.0.35；首页浮层下载 v0.0.36；下载管理进更多菜单 + 导出 + 点播 + SenPlayer 跳转 v0.0.37；独立音频轨合轨 + 下载管理分享按钮 v0.0.38；video_width 回包修复 + 下载管理 SenPlayer 按钮 v0.0.39；下载管理 SenPlayer 直跳 v0.0.41）
 
