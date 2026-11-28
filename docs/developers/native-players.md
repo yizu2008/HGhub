@@ -704,6 +704,12 @@ v0.0.145 之前 mpv 原生是裸全屏：只有画面，没有任何控制（连
   横屏/竖屏”；横屏时隐藏状态栏、竖屏显示（与 WebView 播放页同规则，
   0.5s 刷新里变了才写）。旋转 API 与 OrientationPlugin.setOrientation
   同一套（iOS 16+ `requestGeometryUpdate`，iOS 15 KVC 老路）。
+  - 诊断版 v0.0.149：自动转屏已关（147 电影首帧转横屏后约一两秒闪退，
+    疑首帧两句转横屏请求重叠——覆盖层这句 + 前端按视频尺寸调的那句；
+    短剧竖屏自动转屏、反复手动横竖屏翻转都不闪）。只关自动这一句，
+    手动旋转按钮、手动转手机、前端调方向都不动。同版还修了点 × 闪退
+    （`MPVEngine.makeCArgs` 的守卫误杀空参数表，`close()` 发 `stop`
+    时每次都 `fatalError`）。
 - 关闭：点 × 先拆播放器、再把 `.closed` 发回插件，前端据此把最新
   进度回写并回落 WebView（与 AVPlayer 的 Done 同路）；顺序不能反，
   先发 `.closed` 的话插件会把 engine 置 nil、引擎释放，dismiss 就

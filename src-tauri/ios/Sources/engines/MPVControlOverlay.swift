@@ -311,11 +311,12 @@ final class MPVControlOverlay: UIView, UIGestureRecognizerDelegate {
       currentTimeLabel.text = formatTime(state.position)
     }
     durationLabel.text = formatTime(state.duration)
-    // 首次拿到分辨率就按它自动横竖屏（横屏视频→横屏，竖屏视频→竖屏），
-    // 只做一次；手动旋转后不再自动改回（与 WebView 的 orientationOverride 同理）。
+    // 诊断版 v0.0.149：自动转屏已关（147 电影首帧转横屏后闪退，疑首帧
+    // 两句转横屏请求重叠——覆盖层这句 + 前端按视频尺寸调的那句）。
+    // 只关自动这一句：手动旋转按钮、手动转手机、前端调方向都不动；
+    // 首帧只记 autoRotated，不再发请求。
     if !autoRotated && state.videoWidth > 0 && state.videoHeight > 0 {
       autoRotated = true
-      requestOrientation(landscape: state.videoWidth > state.videoHeight)
     }
     // 横屏隐藏状态栏、竖屏显示（与 WebView 播放页同规则），变了才写。
     let landscape = window?.windowScene?.interfaceOrientation.isLandscape == true
