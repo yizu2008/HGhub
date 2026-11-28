@@ -800,15 +800,16 @@ Vincent Herbst 的独立开源引擎，不是 MDK 改名。
   auto-link，必须显式加），xcodebuild 之后把 9 个 framework 嵌进
   `.app/Frameworks/`（`cp -RP` 保留 framework 里的符号链接；
   `libdovi.a` 是静态库、已链进主程序，不用嵌）。**framework 与
-  `libdovi.a` 在构建树里不止一份**（xcframework 解包后各 slice、
-  宿主构建产物里都有）：staging 以 framework 所在的目录为锚
-  （9 个都在同一目录）取 framework；**`libdovi.a` 不取产物目录
-  里的那份**——150 第四、五轮 CI 证明它就是 macOS slice（两轮
-  ld 报错的对象名完全相同，而同一目录的 9 个 framework 全是
-  iOS slice、链接正常，两轮都是零未定义符号）。`libdovi.a` 改
-  从 LibDovi 原包的 xcframework 里直接取 `ios-arm64` slice
-  （`checkouts/LibDovi/Dovi.xcframework/ios-arm64/libdovi.a`；
-  原包路径不存在时才回退到产物目录里同目录的那份）。
+  `libdovi.a` 都优先从原包 xcframework 的 `ios-arm64` slice 取**
+  （`checkouts/FFmpegBuild/Sources/<name>.xcframework` 与
+  `checkouts/LibDovi/Dovi.xcframework`；原包路径不存在时才回退
+  到产物目录里同目录的那份）。产物目录里 iOS 与 macOS 两份混
+  在一起、按目录锚定是拼运气：150 第四、五轮 CI 里产物目录的
+  `libdovi.a` 是 macOS slice（两轮 ld 报错的对象名完全相同），
+  第六轮里产物目录的 6 个 framework（avcodec/avfilter/avformat/
+  avutil/swresample/swscale）也是 macOS slice——同样的代码同样
+  的目录，150d/150e 拿到 iOS、150f 拿到 macOS，read_dir 顺序
+  一变就翻车；只有原包 slice 是确定的 iOS 版。
 - **接入形态**：源码 SwiftPM 包；FFmpeg 以预编译动态 framework 随
   包分发（FFmpegBuild，约 10.5MB）；整包增量估计 11–15MB，集成
   后以实测 IPA 为准。只 link `AetherEngine` product；SMB 播放用的

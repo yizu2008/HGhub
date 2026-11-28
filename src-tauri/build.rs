@@ -122,9 +122,12 @@ fn link_ios_native_plugins() {
 /// `gen/apple/AetherLib/`（固定位置，供 Xcode 链接与装包）。
 /// 产物目录布局随 Xcode 版本变（26 是 arm64-apple-macosx/release，
 /// 27 是 Products/Release-iphoneos），不写死路径，递归按名字找。
-/// framework 取产物目录里已拷出来的那份；libdovi.a 不取产物目录
-/// 里的那份（它是 macOS slice，见函数内注释），改从 checkouts/
-/// 里 LibDovi 原包的 xcframework ios-arm64 slice 取。
+/// framework 与 libdovi.a 都优先从原包 xcframework 的 ios-arm64
+/// slice 取（checkouts/FFmpegBuild/Sources/<name>.xcframework 与
+/// checkouts/LibDovi/Dovi.xcframework）；产物目录里 iOS 与 macOS
+/// 两份混在一起、按目录锚定是拼运气（150d/150e 拿到 iOS、150f
+/// 拿到 macOS），不能做取舍依据。原包路径不存在时才回退到产物
+/// 目录里同目录的那份，两个都没有直接 panic。
 #[cfg(target_os = "macos")]
 fn stage_aether_frameworks(manifest_dir: &Path) {
     let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
@@ -156,12 +159,8 @@ fn stage_aether_frameworks(manifest_dir: &Path) {
             swift_root.display()
         );
     }
-    // framework 与 libdovi.a 在构建树里不止一份（xcframework 解包后
-    // 各 slice、宿主构建产物里都有）；产物目录是 framework 所在的那
-    // 个目录（9 个都在同一目录），libdovi.a 必须取同一目录下的那份
-    // （iOS slice）。直接取遍历到的最后一
-    // 份会拿到 macOS slice（150 第四轮 CI 就是这么挂的：ld 报
-    // libdovi.a built for 'macOS'）。
+    // 产物目录是 framework 数量最多的那个目录（回退路径用）；同名
+    // framework 可能在多个目录各有一份，按名字去重后逐个取舍。
     let mut by_dir: Vec<(PathBuf, usize)> = Vec::new();
     for fw in &frameworks {
         let dir = fw.parent().unwrap().to_path_buf();
@@ -173,10 +172,40 @@ fn stage_aether_frameworks(manifest_dir: &Path) {
     }
     by_dir.sort_by(|a, b| b.1.cmp(&a.1));
     let (products_dir, _) = by_dir.into_iter().next().unwrap();
-    let frameworks: Vec<PathBuf> = frameworks
-        .into_iter()
-        .filter(|fw| fw.parent().unwrap() == products_dir)
-        .collect();
+    let mut names: Vec<String> = Vec::new();
+    for fw in &frameworks {
+        let name = fw.file_name().unwrap().to_string_lossy().into_owned();
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    let mut staged_frameworks: Vec<PathBuf> = Vec::new();
+    let mut missing: Vec<String> = Vec::new();
+    for name in &names {
+        let xc = swift_root
+            .join("checkouts")
+            .join("FFmpegBuild")
+            .join("Sources")
+            .join(format!("{name}.xcframework"))
+            .join("ios-arm64")
+            .join(name);
+        if xc.is_dir() {
+            staged_frameworks.push(xc);
+        } else if let Some(fw) = frameworks.iter().find(|f| {
+            f.file_name().unwrap() == name.as_str() && f.parent().unwrap() == products_dir
+        }) {
+            staged_frameworks.push(fw.clone());
+        } else {
+            missing.push(name.clone());
+        }
+    }
+    if !missing.is_empty() {
+        panic!(
+            "AetherLib framework 未找到：{}（原包 xcframework ios-arm64 slice 不存在，产物目录 {} 里也没有）",
+            missing.join(", "),
+            products_dir.display()
+        );
+    }
     // libdovi.a 不取产物目录里的那份：150 第四、五轮 CI 证明它就是
     // macOS slice（两轮 ld 报错的对象名完全相同），而同一目录下的
     // 9 个 framework 全是 iOS slice、链接正常（两轮都是零未定义
@@ -212,14 +241,14 @@ fn stage_aether_frameworks(manifest_dir: &Path) {
     let stage = manifest_dir.join("gen").join("apple").join("AetherLib");
     let _ = std::fs::remove_dir_all(&stage);
     std::fs::create_dir_all(&stage).expect("failed to create AetherLib stage dir");
-    for fw in &frameworks {
+    for fw in &staged_frameworks {
         let dest = stage.join(fw.file_name().unwrap());
         copy_dir_preserve_symlinks(fw, &dest);
     }
     std::fs::copy(&dovi, stage.join("libdovi.a")).expect("failed to stage libdovi.a");
     println!(
         "cargo:warning=staged {} AetherLib frameworks + libdovi.a (from {}) to {}",
-        frameworks.len(),
+        staged_frameworks.len(),
         dovi.display(),
         stage.display()
     );
