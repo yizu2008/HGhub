@@ -121,9 +121,10 @@ fn link_ios_native_plugins() {
 /// 把 swift build 产物里的 AetherEngine 二进制依赖拷到
 /// `gen/apple/AetherLib/`（固定位置，供 Xcode 链接与装包）。
 /// 产物目录布局随 Xcode 版本变（26 是 arm64-apple-macosx/release，
-/// 27 是 Products/Release-iphoneos），不写死路径，递归按名字找；
-/// checkouts/ 里是 xcframework 原包（双 slice），只取产物目录里
-/// 已拷出来的那份，不碰它。
+/// 27 是 Products/Release-iphoneos），不写死路径，递归按名字找。
+/// framework 取产物目录里已拷出来的那份；libdovi.a 不取产物目录
+/// 里的那份（它是 macOS slice，见函数内注释），改从 checkouts/
+/// 里 LibDovi 原包的 xcframework ios-arm64 slice 取。
 #[cfg(target_os = "macos")]
 fn stage_aether_frameworks(manifest_dir: &Path) {
     let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
@@ -176,13 +177,32 @@ fn stage_aether_frameworks(manifest_dir: &Path) {
         .into_iter()
         .filter(|fw| fw.parent().unwrap() == products_dir)
         .collect();
-    let Some(dovi) = dovis
+    // libdovi.a 不取产物目录里的那份：150 第四、五轮 CI 证明它就是
+    // macOS slice（两轮 ld 报错的对象名完全相同），而同一目录下的
+    // 9 个 framework 全是 iOS slice、链接正常（两轮都是零未定义
+    // 符号，只挂 libdovi.a）。改成直接从 LibDovi 原包的
+    // xcframework 里取 ios-arm64 slice（LibDovi Package.swift 里
+    // binaryTarget path: "Dovi.xcframework"，Info.plist 声明的
+    // ios-arm64 slice 存在）；原包路径不存在时才回退到产物目录
+    // 里同目录的那份，两个都没有直接 panic。
+    let xcframework_dovi = swift_root
+        .join("checkouts")
+        .join("LibDovi")
+        .join("Dovi.xcframework")
+        .join("ios-arm64")
+        .join("libdovi.a");
+    let dovi = if xcframework_dovi.is_file() {
+        xcframework_dovi
+    } else if let Some(d) = dovis
         .iter()
         .find(|d| d.parent().unwrap() == products_dir)
         .cloned()
-    else {
+    {
+        d
+    } else {
         panic!(
-            "libdovi.a 未找到：framework 所在目录 {} 下没有 libdovi.a（找到的候选：{:?}）",
+            "libdovi.a 未找到：LibDovi 原包 {} 不存在，framework 所在目录 {} 下也没有 libdovi.a（找到的候选：{:?}）",
+            xcframework_dovi.display(),
             products_dir.display(),
             dovis
         );
@@ -198,8 +218,9 @@ fn stage_aether_frameworks(manifest_dir: &Path) {
     }
     std::fs::copy(&dovi, stage.join("libdovi.a")).expect("failed to stage libdovi.a");
     println!(
-        "cargo:warning=staged {} AetherLib frameworks + libdovi.a to {}",
+        "cargo:warning=staged {} AetherLib frameworks + libdovi.a (from {}) to {}",
         frameworks.len(),
+        dovi.display(),
         stage.display()
     );
 }
