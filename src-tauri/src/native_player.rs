@@ -19,7 +19,7 @@ tauri::ios_plugin_binding!(init_plugin_native_player);
 #[cfg(target_os = "ios")]
 pub struct NativePlayerPlugin(pub tauri::plugin::PluginHandle<tauri::Wry>);
 
-/// 四个原生引擎。名字与前端 NativeEngine、Swift makeEngine 保持一致。
+/// 原生引擎。名字与前端 NativeEngine、Swift makeEngine 保持一致。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum NativeEngine {
@@ -27,6 +27,7 @@ pub enum NativeEngine {
     Mdk,
     Ksplayer,
     Mpv,
+    Aether,
 }
 
 /// open / play / pause / seek / set_rate / set_volume 的回包：Swift 侧

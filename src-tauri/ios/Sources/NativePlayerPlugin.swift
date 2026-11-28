@@ -173,6 +173,7 @@ class NativePlayerPlugin: Plugin {
     case "mdk": return MDKEngine()
     case "ksplayer": return KSPlayerEngine()
     case "mpv": return MPVEngine()
+    case "aether": return AetherPlayerEngine()
     default: return nil
     }
   }

@@ -26,7 +26,7 @@
 | Python 蜘蛛（TVBox .py 源） | v1 已实现，仅 iOS，未真机验收 | CPython 3.12.16 边车（BeeWare 3.12-b13）+ `base.spider`；导入按内容识别，`py.<词干>` / 版本恒 1.0.0；映射 `catalog.getCategories` / `home.getSections` / `feed.list` / `catalog.list` / `search.search` / `media.getDetail` / `media.resolvePlayback`（见 [Python 蜘蛛指南](python-spiders.md)）。hpp 集成测试 5 项与边车全模式/v1-only 模式通过。非 iOS 目标初始化报 `UNSUPPORTED`。iOS 构建与设备播放待 CI/真机验收；`lxml` / `pyquery` / `pycryptodome` v1 不带，`liveContent` / `suggest` / `trending` / `transformResource` / `endpoints` 未映射，`meta.settings` 与持久存储未接 |
 | 猫源（Node 猫源） | v1 已实现（设计文档已实现），待真机验证 | Node 边车（nodejs-mobile v18.20.4）+ `/cat/load` / `/cat/unload` / `/cat/list`；订阅导入（网络 URL / ZIP）与 `cat-sources.json` 记录，`cat.<订阅>` / 版本恒 1.0.0 / `runtime: "cat"`；方法面与 Python 蜘蛛一致（见 [Node 猫源](cat-source.md)）。hpp 单元测试通过。非 iOS 目标初始化报 `UNSUPPORTED`。iOS 构建、订阅导入、分类/详情/搜索/播放与启停/删除待真机验收 |
 | DASH/ASS | 可选未支持 | 不声明这些特性 |
-| 原生播放器（iOS） | 桥已搭，部分验证 | AVPlayer 完整实现；mpv 已实现（原生 dylib + render API，v0.0.142 起；138–141 真机已跑通，Mexico 原画待验证）；MDK / KSPlayer 为 canImport 守卫；WebView 仍是默认路，见 [iOS 原生播放器](native-players.md) |
+| 原生播放器（iOS） | 桥已搭，部分验证 | AVPlayer 完整实现；mpv 已实现（原生 dylib + render API，v0.0.142 起；138–141 真机已跑通，Mexico 原画待验证）；AetherEngine 已接线（SPM 6.89.1，v0.0.148 起，未真机验证）；MDK / KSPlayer 为 canImport 守卫；默认路是 auto（原生优先，v0.0.148 起），见 [iOS 原生播放器](native-players.md) |
 | 跨端/后台 | 未完成 | Windows 浏览器、Android 导入及单部真实 MP4 播放有证据 |
 
 Windows 与 Android 的原生测试均覆盖同源 Cookie 和 localStorage。API 35 / WebView 110 在独立登录进程内使用新数据目录，通过主视图与连续两次登录的隔离测试。客户端按原生能力声明 `webview`。当前适配器要求 Windows WebView2 88 及以上，或 Android 28 及以上并支持 `GET_COOKIE_INFO`。

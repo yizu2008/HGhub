@@ -19,7 +19,7 @@ import type { PreparedMedia } from "../plugins/client";
 import { closeNativePlayer, clearLocalNativePlayback, isLocalNativePlayback, nativePlayerState, onNativePlayerClosed, onNativePlayerEnded, onNativePlayerError, onNativePlayerLog, onNativePlayerTime, openNativePlayer, type NativePlayerState } from "../plugins/nativePlayer";
 import DownloadManager from "../plugins/DownloadManager";
 import { openInSenPlayer } from "../senplayer";
-import { playbackEngineFallbackChain, playbackEngineLabel, type PlaybackEngine } from "../plugins/playbackEngine";
+import { playbackEngineFallbackChain, playbackEngineLabel, playbackEngineOptionLabel, type PlaybackEngine } from "../plugins/playbackEngine";
 import { IMore, IHeart, IHeartF, IPip, IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IDownload, IInfo, IList, ILockF, IPauseF, IPlayF, IRotate, ISearch, ISettings, IVol, IVolMute } from "../icons";
 
 export type PlayerPanel = "detail" | "episodes" | "comments" | "playback";
@@ -628,7 +628,7 @@ export default function Feed({media, position, active=true, preparing=false, err
       </div>
       <label>播放速度<select aria-label="播放速度" value={rate} onChange={e=>setRate(Number(e.target.value))}>{[.5,.75,1,1.25,1.5,2].map(v=><option key={v} value={v}>{v}×{v===1?" · 正常":""}</option>)}</select></label>
       <label>音量<input aria-label="音量" type="range" min="0" max="1" step=".01" value={muted?0:volume} onChange={e=>{setMuted(false);setVolume(Number(e.target.value));}}/></label>
-      {platform === "ios" && <label>播放内核<select aria-label="播放内核" value={playbackEngine} onChange={e=>setPlaybackEngine(e.target.value as PlaybackEngine)}>{(["webview","avplayer","mpv","auto"] as const).map(engine=><option key={engine} value={engine}>{playbackEngineLabel(engine)}</option>)}</select></label>}
+      {platform === "ios" && <label>播放内核<select aria-label="播放内核" value={playbackEngine} onChange={e=>setPlaybackEngine(e.target.value as PlaybackEngine)}>{(["webview","avplayer","mpv","aether","auto"] as const).map(engine=><option key={engine} value={engine}>{playbackEngineOptionLabel(engine)}</option>)}</select></label>}
       {platform === "ios" && <label>硬件加速<input aria-label="硬件加速" type="checkbox" checked={mpvHardwareAcceleration} onChange={e=>setMpvHardwareAcceleration(e.target.checked)}/></label>}
       <label>画面设置<select aria-label="画面设置" value={pictureMode} onChange={e=>setPictureMode(e.target.value as PictureMode)}><option value="fit">适应</option><option value="stretch">拉伸</option><option value="fill">铺满</option><option value="16:9">16:9</option><option value="4:3">4:3</option></select></label>
       {platform === "ios" && playbackEngine !== "webview" && <button onClick={()=>{setPanel(null);void openNative();}}><IPlayF size={19}/>原生播放</button>}

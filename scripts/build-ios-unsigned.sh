@@ -68,6 +68,10 @@ node scripts/sync-ios-node.mjs
 # FFmpeg 这一代没有 SMB 支持，不再需要 smbc_stubs.c。
 XCODE_TOOLCHAIN="$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain"
 test -d "$XCODE_TOOLCHAIN/usr/lib/swift/iphoneos"
+# AetherEngine 6.x 要求 iOS 16（见 src-tauri/ios/Package.swift）；
+# 应用底线原来是 Tauri 模板默认值 15.0，用命令行参数抬到 16.0——
+# gen/apple 是每次 `tauri ios init` 现生成的，改它里面的文件下次
+# 就没了，写脚本里才稳。
 xcodebuild build \
   -toolchain com.apple.dt.toolchain.XcodeDefault \
   -project src-tauri/gen/apple/huangguo-client.xcodeproj \
@@ -77,6 +81,7 @@ xcodebuild build \
   -destination 'generic/platform=iOS' \
   -derivedDataPath "$ROOT/build_output" \
   TOOLCHAIN_DIR="$XCODE_TOOLCHAIN" \
+  IPHONEOS_DEPLOYMENT_TARGET=16.0 \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
   FRAMEWORK_SEARCH_PATHS='$(inherited) $(PROJECT_DIR) $(PROJECT_DIR)/Python.xcframework/ios-arm64' \
   OTHER_LDFLAGS='$(inherited) -framework Python -framework SystemConfiguration -framework OpenGLES'

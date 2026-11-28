@@ -15,11 +15,30 @@ import AVFoundation
 import MediaPlayer
 import UIKit
 
-/// mpv 容器里的控制覆盖层。由 MPVEngine.open() 建好加进容器，0.5s 的
-/// 状态轮询调 refresh(state:) 刷新；close() 时 teardown() + 移掉。
-/// 手势只认视频区域：控制条（顶栏/底栏）上的触摸交给按钮和滑块。
+/// 控制层的操作目标：覆盖层只认这套方法，不认具体引擎类。
+/// mpv（MPVEngine）与 AetherEngine（AetherPlayerEngine）都实现它，
+/// 所以两家共用同一个覆盖层；方法与 NativePlayerEngine 协议一致，
+/// 另加 userClose（关闭按钮：先拆覆盖层再发 .closed）。
+protocol NativePlayerControlTarget: AnyObject {
+  func play()
+  func pause()
+  func seek(to position: Double)
+  func setRate(_ rate: Double)
+  func setVolume(_ volume: Double, muted: Bool)
+  func userClose()
+}
+
+/// 原生播放的控制覆盖层。mpv 在 v0.0.146 起用它，AetherEngine 在
+/// v0.0.148 起复用（见 NativePlayerControlTarget）。
+/// 顶栏（关闭 + 标题 + 分辨率）+ 底栏（播放/暂停、进度、静音、倍速、旋转）
+/// + 手势（单击显隐、双击播放/暂停、左半屏竖滑亮度、右半屏竖滑系统音量、
+/// 横滑快进/快退）+ 按视频分辨率自动横竖屏 + 手动旋转 + 横屏隐藏状态栏。
+/// AVPlayer 用系统控制条，不走这里；MDK/KSPlayer 未实现。
+/// 由引擎的 open() 建好加进容器，0.5s 的状态轮询调 refresh(state:)
+/// 刷新；close() 时 teardown() + 移掉。手势只认视频区域：控制条
+/// （顶栏/底栏）上的触摸交给按钮和滑块。
 final class MPVControlOverlay: UIView, UIGestureRecognizerDelegate {
-  weak var engine: MPVEngine?
+  weak var engine: (any NativePlayerControlTarget)?
 
   // MARK: - 控件
 
@@ -74,7 +93,7 @@ final class MPVControlOverlay: UIView, UIGestureRecognizerDelegate {
 
   private let rates: [Double] = [1, 1.25, 1.5, 2, 0.5, 0.75]
 
-  init(engine: MPVEngine, title: String?) {
+  init(engine: any NativePlayerControlTarget, title: String?) {
     self.engine = engine
     super.init(frame: .zero)
     backgroundColor = .clear

@@ -19,13 +19,14 @@ import PackageDescription
 let package = Package(
   name: "NativePlugins",
   platforms: [
-    // v0.0.141 起是 macOS 11 / iOS 14（当时 MPVKit 0.41.0 的要求）。
-    // v0.0.142 起不再用 MPVKit（改嵌原生 dylib，见
-    // src-tauri/ios/mpv-dylibs/README.md），底线保持 macOS 11 /
-    // iOS 14 不变——dylib 本身的 minOS 由构建方定，dlopen 失败时
-    // mpv 只报 unavailable、播放链回落，不影响启动。
-    .macOS(.v11),
-    .iOS(.v14),
+    // v0.0.148 起是 macOS 14 / iOS 16（AetherEngine 6.x 线的要求，
+    // 见下）。之前是 macOS 11 / iOS 14（MPVKit 0.41.0 时代）。
+    // 应用的 MinOS 也随之从 15.0 抬到 16.0：15.0 是 Tauri 模板的
+    // 生成默认值，仓库里没有地方写死它，抬升靠
+    // scripts/build-ios-unsigned.sh 的 xcodebuild 参数
+    // IPHONEOS_DEPLOYMENT_TARGET=16.0。
+    .macOS(.v14),
+    .iOS(.v16),
   ],
   products: [
     // Products define the executables and libraries a package produces, and make them visible to other packages.
@@ -36,6 +37,17 @@ let package = Package(
   ],
   dependencies: [
     .package(name: "Tauri", path: "../.tauri/tauri-api"),
+    // AetherEngine（v0.0.148 起）：独立开源播放引擎
+    // （github.com/superuser404notfound/AetherEngine），FFmpeg n8.1.3
+    // + VideoToolbox 硬解 + dav1d 软解，DV P7→8.1 转换。只走 6.x 线：
+    // 上游 7.x 要求 iOS 18，用户手机是 16.6.1 跑不了；6.89.1 要求
+    // iOS 16。版本用 "6.89.1"..<"7.0.0" 的范围写法——等价于上游
+    // 文档说的 `.upToNextMajor(from: "6.89.1")`，但那个写法要
+    // swift-tools 6.0 以上；本包保持 5.6（升 6.0 会把整个包切到
+    // Swift 6 语言模式，现有代码要重过并发检查），范围写法 5.6
+    // 就有。只 link `AetherEngine` product；SMB 播放用的
+    // `AetherEngineSMB` 没接，不需要。
+    .package(url: "https://github.com/superuser404notfound/AetherEngine", "6.89.1"..<"7.0.0"),
     // mpv 原生 dylib（v0.0.142 起，替代 MPVKit）：已 vendor 在
     // src-tauri/ios/mpv-dylibs/（mpv 0.41.0 + FFmpeg 8.1-dev 一代，
     // UZN 1.9.0 包里同款开源库），build-ios-unsigned.sh 在 xcodebuild
@@ -52,6 +64,7 @@ let package = Package(
       name: "NativePlugins",
       dependencies: [
         .byName(name: "Tauri"),
+        .product(name: "AetherEngine", package: "AetherEngine"),
       ],
       path: "Sources")
   ]

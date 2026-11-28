@@ -2,8 +2,9 @@ import { invoke, addPluginListener, type PluginListener } from "@tauri-apps/api/
 import { platform } from "../environment";
 
 // iOS 原生播放器前端封装：React -> Rust native_player_* 命令 ->
-// Swift NativePlayerPlugin -> 四个引擎。WebView / <video> 仍是默认路，
-// 这里只在用户选了原生引擎时调用（见 playbackEngine.ts 与 Feed.tsx）。
+// Swift NativePlayerPlugin -> 各原生引擎。WebView / <video> 仍是
+// 一条路，v0.0.148 起默认是 auto（原生优先），只在用户选了 WebView
+// 时才走内嵌（见 playbackEngine.ts 与 Feed.tsx）。
 //
 // 注意 invoke 参数名：Tauri `#[tauri::command]` 默认按 camelCase 传参
 // （tauri-macros 默认 rename_all="camelCase"），Rust 形参 session_id
@@ -14,7 +15,7 @@ import { platform } from "../environment";
 // Rust 侧 NativePlayerState 用 rename_all="camelCase" 对齐，前端
 // NativePlayerState 接口声明的也是 videoWidth。
 
-export type NativeEngine = "avplayer" | "mpv";
+export type NativeEngine = "avplayer" | "mpv" | "aether";
 
 export interface NativePlayerOpenOptions {
   engine: NativeEngine;

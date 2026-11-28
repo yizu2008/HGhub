@@ -892,3 +892,9 @@ final class MPVEngine: NSObject, NativePlayerEngine {
     eventHandler?(.error("mpv 播放失败"))
   }
 }
+
+// MPVEngine 的方法已满足 NativePlayerControlTarget（play/pause/seek/
+// setRate/setVolume 来自 NativePlayerEngine，userClose 见上），这里只
+// 声明 conformance，让 MPVControlOverlay 能以协议类型持有它；
+// AetherPlayerEngine 同理（见该文件末尾）。
+extension MPVEngine: NativePlayerControlTarget {}

@@ -1,8 +1,11 @@
 # iOS 原生播放器
 
-WebView / HTML5 `<video>` + hls.js 仍是默认播放路径（`src/components/VideoSurface.tsx`
-一动不动）。本文档只讲新增的四条原生路：AVPlayer、MDK、mpv、KSPlayer。
-它们只在用户选了非 WebView 引擎且平台是 iOS 时启用，失败自动回落 WebView。
+v0.0.148 起默认是 `auto`（原生优先：AVPlayer → mpv → AetherEngine，
+都打不开才回落 WebView 内嵌；只有用户明确选了 WebView 才内嵌）。
+WebView / HTML5 `<video>` + hls.js 是回落路（`src/components/VideoSurface.tsx`
+一动不动）。本文档只讲三条原生路：AVPlayer、mpv、AetherEngine
+（MDK / KSPlayer 是替身代码，依赖没装、点了只报“未接入”，见下）。
+原生路只在平台是 iOS 时启用。
 
 > 状态：桥已搭好，未在设备验证。**本机是 Linux，没有 Xcode / Swift 工具链，
 > iOS 原生代码一行都没编译过**，也没有跑过真机。下面“Mac 验证”一节是必须
@@ -17,11 +20,11 @@ React（Feed.tsx：详情页点选集自动打开 + 更多播放选项菜单里�
       native_player_open / close / play / pause / seek / set_rate / set_volume / state
   → Tauri 移动插件 "native-player"（lib.rs 注册）
   → Swift src-tauri/ios/Sources/NativePlayerPlugin.swift（统一 NativePlayerEngine 协议）
-  → src-tauri/ios/Sources/engines/ 下四个引擎适配（原生全屏 present，退出时发回事件）
+  → src-tauri/ios/Sources/engines/ 下各引擎适配（原生全屏 present，退出时发回事件）
   → 前端收到 native-player-time / -ended / -error / -closed 后回写进度、回落 WebView
 ```
 
-取流：四个引擎都直接播 Rust `media.rs` 给的本地回环地址
+取流：各引擎都直接播 Rust `media.rs` 给的本地回环地址
 `http://127.0.0.1:{port}/hpp/{id}/{index}?v={version}`，上游头、Range、
 密钥都由 Rust 代理处理，原生侧不拼头、不改地址、不碰 HPP 会话逻辑。
 `PreparedMedia` 的形状、会话 / 刷新 / 资源归属一律没改（协议 09 章不动）。
@@ -56,14 +59,22 @@ C 符号名（`init_plugin_native_player` / `init_plugin_orientation`）
 ## 引擎选择
 
 存在 store 的 `playbackEngine`（localStorage `hpp.playbackEngine`），
-默认 `"webview"`。可选：`webview`、`avplayer`、`mpv`、
-`auto`。v0.0.146 起 MDK / KSPlayer 不再出现在选择里：依赖没装，
-点了只会报“未接入”；引擎替身代码还在，装好依赖再加回来。
+v0.0.148 起默认 `"auto"`（之前默认 `"webview"`；已存过的值不受
+影响——读到存的值就用存的，只有没存过才走默认）。可选：
+`webview`、`avplayer`、`mpv`、`aether`、`auto`。v0.0.146 起 MDK /
+KSPlayer 不再出现在选择里：依赖没装，点了只会报“未接入”；引擎替
+身代码还在，装好依赖再加回来。
+下拉框里原生内核后面标“（支持原生播放）”（`playbackEngineOptionLabel`，
+v0.0.148）：AVPlayer（支持原生播放）、mpv（支持原生播放）、
+AetherEngine（支持原生播放）；角标仍用短名（`playbackEngineLabel`），
+太长放不下。
+
+`auto` 的 fallback 链（`src/plugins/playbackEngine.ts`，纯函数）：
+AVPlayer → mpv → AetherEngine → 回落 WebView。AetherEngine 是新接的、
+没真机验过，排最后兜底。
 设置页已接：`src/plugins/ApplicationSettings.tsx` 的“播放”区有
 “播放内核”选择器，只在 iOS 显示，非 iOS 平台不显示（原生引擎只支持 iOS）。
 
-`auto` 的 fallback 链（`src/plugins/playbackEngine.ts`，纯函数）：
-AVPlayer → mpv → 回落 WebView。
 指定某个引擎时只试它，失败也回落 WebView。
 
 选引擎有两个入口，共用同一个 store（`playbackEngine` /
@@ -76,14 +87,15 @@ WebView 时，点选集直接按所选内核开原生（`Feed.tsx` 的自动打�
 播放画面右上角不再放“原生播放”pill（v0.0.22 删掉），手动入口
 只在更多菜单里。
 
-## 四个引擎
+## 各引擎
 
 | 引擎 | 格式 | 许可证（发行前必读） | 接入方式 | 已知限制 |
 | --- | --- | --- | --- | --- |
 | AVPlayer | H.264/HEVC + MP4/HLS | 系统自带，无许可证问题 | 零依赖，`AVPlayerViewController` 全屏 | 不吃 MKV/FLV/WebM/VP9/AV1，不支持 DASH，ASS 只能走 HLS 内嵌字幕 |
 | MDK | FFmpeg 底，格式宽，ASS 需可选 `ass.framework` | key 制：开源 / 非商业免费，找作者申请 key；无 key 且 SDK 过期时最后一帧可能出现二维码水印 | CocoaPods `pod 'mdk'` 或 SPM `swift-mdk` | key 要另外申请；`setDecoders` 目前配 `VT / FFmpeg / dav1d` |
 | KSPlayer | AVPlayer + FFmpeg，HDR / Dolby Vision / Atmos 好 | **默认 GPL-3.0，要求开源自家代码**；HGhub 是 PolyForm Noncommercial，**不能直接按 GPL 发行**；完整格式 / 全量 ASS / AV1 硬解 / FFmpeg 8.1 在付费 LGPL 版（联系 kingslay@icloud.com），免费 GPL 版是 FFmpeg 6.1.0 且功能受限 | SPM `kingslay/KSPlayer`，`KSOptions.secondPlayerType = KSMEPlayer.self` 切 FFmpeg 路 | 没拿到付费 LGPL 之前不要用它发正式包 |
-| mpv（libmpv） | 格式 / ASS 最强 | libmpv 是 GPL-2.0+、FFmpeg 是 LGPL——与 MPVKit 时代同一批库的另一种打包，发行口径不变（见下）；不要用含 Samba 的 GPL 全量版 | 已接：原生 dylib（`src-tauri/ios/mpv-dylibs/`，mpv 0.41.0 + FFmpeg 8.1-dev 一代，27 个），v0.0.142 起替代 MPVKit。渲染走 libmpv render API + EAGLContext（OpenGL ES），vo=libmpv（必须是 libmpv：render API 的 VO 驱动名就是它，写 gpu-next 会让播放核另建独立 gpu-next VO、去探 vulkan/MoltenVK 要 WinID 而建不起来，143 真机就是这么死的）+ hwdec=videotoolbox-copy（v0.0.145 起：直接 videotoolbox 会发绿，见下；硬解/软解由硬件加速开关控制，v0.0.146）。0.41.0 起最低 iOS 14.0（应用保持 iOS 14.0 底线，macOS 11） | 最难编，包体最大；render API 在 iOS 上要自己管 GL 上下文与 FBO |
+| mpv（libmpv） | 格式 / ASS 最强 | libmpv 是 GPL-2.0+、FFmpeg 是 LGPL——与 MPVKit 时代同一批库的另一种打包，发行口径不变（见下）；不要用含 Samba 的 GPL 全量版 | 已接：原生 dylib（`src-tauri/ios/mpv-dylibs/`，mpv 0.41.0 + FFmpeg 8.1-dev 一代，27 个），v0.0.142 起替代 MPVKit。渲染走 libmpv render API + EAGLContext（OpenGL ES），vo=libmpv（必须是 libmpv：render API 的 VO 驱动名就是它，写 gpu-next 会让播放核另建独立 gpu-next VO、去探 vulkan/MoltenVK 要 WinID 而建不起来，143 真机就是这么死的）+ hwdec=videotoolbox-copy（v0.0.145 起：直接 videotoolbox 会发绿，见下；硬解/软解由硬件加速开关控制，v0.0.146）。0.41.0 起最低 iOS 14.0（v0.0.148 起应用底线抬到 iOS 16.0，见 AetherEngine 一节） | 最难编，包体最大；render API 在 iOS 上要自己管 GL 上下文与 FBO |
+| AetherEngine | FFmpeg 底，格式宽，DV P7→8.1 转换、Atmos/TrueHD/DTS:X 多声道 | LGPL-3.0 + App Store/DRM 例外：可经商店分发，但完整对应源码（含修改）须保持公开可获取；FFmpegBuild 本身是 LGPL-2.1 | 已接：SPM 上游包 6.89.1（`github.com/superuser404notfound/AetherEngine`），v0.0.148 起。只走 6.x 线：7.x 要求 iOS 18，应用底线随之从 15.0 抬到 16.0 | 引擎按编码自动分流硬解/软解（`.automatic` 默认）；无内置 UI，控制层复用 mpv 的 MPVControlOverlay；与 mpv 的 FFmpeg 共存待真机验证（见下） |
 
 当前实现状态：
 
@@ -283,6 +295,16 @@ WebView 时，点选集直接按所选内核开原生（`Feed.tsx` 的自动打�
   与版本无关。client.h 已核对：常量与四个结构体与 0.40.0 完全一致
   （API 2.5），Swift 代码不用改。
 
+- **AetherEngine 已接线（未真机验证）**：
+  `engines/AetherPlayerEngine.swift`，SPM 上游 6.89.1（FFmpeg n8.1.3）。
+  `load(url:startPosition:options:)` + `AetherPlayerView` + `bind(view:)`；
+  硬解/软解按编码自动分流（`.automatic` 默认，原生路拒绝自动升级软解）；
+  音量无静音 API（静音 = 音量设 0）；`.ended` 是终态，重播须重新 load；
+  控制层复用 `MPVControlOverlay`（`NativePlayerControlTarget` 协议）；
+  应用底线 iOS 16.0（Package.swift 平台 + xcodebuild 参数双保险）。
+  待真机验证：播 HLS/MP4、播 AVPlayer/mpv 打不开的格式（AV1/VP9/MKV）、
+  DV 片、控制层全套、以及 mpv 是否还正常（FFmpeg 共存）。
+
 ## Mac 验证（按顺序）
 
 ```bash
@@ -308,7 +330,9 @@ bash scripts/build-ios-unsigned.sh 0.0.4
 # 5. 真机（TrollStore 或自签名）安装后逐项测：
 #    - 设置 playbackEngine 为 avplayer，播 HLS/MP4，确认全屏、进度、Done 后回落 WebView
 #    - 播一个 AVPlayer 不支持的格式，确认 auto 链 fallback 到下一个引擎或 WebView
-#    - 再逐个测 MDK / KSPlayer / mpv（各依赖装好后）
+#    - 再逐个测 MDK / KSPlayer / mpv / AetherEngine（各依赖装好后；
+#      AetherEngine 另加：播 AVPlayer/mpv 打不开的格式、DV 片、控制层
+#      全套、mpv 是否还正常——FFmpeg 共存）
 #    - 方向：播横屏视频（16:9）自动转横屏，播竖屏视频自动回竖屏；
 #      点控制条的旋转按钮手动切到反面，本集内不再自动改回；切集后
 #      回到按分辨率自动；退出播放页后恢复竖屏。手动旋转成功时应有
@@ -734,6 +758,59 @@ Tauri `native_player_open`（camelCase `hardwareAcceleration`）→ Rust
 `NativePlayerEngine.open(…, hardwareAcceleration:)`。AVPlayer / MDK /
 KSPlayer 的 open 也接了这个参数但直接忽略：AVPlayer 没有硬解开关，
 永远用 VideoToolbox 硬解 H.264/HEVC，不支持的格式直接播不了。
+
+## AetherEngine（v0.0.148）
+
+来源：ReelFlow 5.2.0 里的四个内核之一，唯一有新增价值的（KSPlayer
+GPL 不能进正式包、mpv 0.37 比已有的 0.41 旧、AVPlayer 已有）；是
+Vincent Herbst 的独立开源引擎，不是 MDK 改名。
+
+- **版本线**：只走 6.x（6.89.1）。上游 HEAD 7.77.0 要求 iOS 18 +
+  Xcode 27，用户手机 16.6.1 跑不了；6.89.1 要求 iOS 16。SPM 依赖
+  用范围 `"6.89.1"..<"7.0.0"`——等价于上游文档说的
+  `.upToNextMajor(from: "6.89.1")`，那个写法要 swift-tools 6.0；
+  本包保持 5.6（升 6.0 会把整个包切到 Swift 6 语言模式，现有代
+  码要重过并发检查），范围写法 5.6 就有。应用底线抬升双保险：
+  `Package.swift` 平台 iOS 16 / macOS 14 +
+  `build-ios-unsigned.sh` 的 xcodebuild 参数
+  `IPHONEOS_DEPLOYMENT_TARGET=16.0`（15.0 是 Tauri 模板默认值，
+  仓库里没地方写死它）。
+- **接入形态**：源码 SwiftPM 包；FFmpeg 以预编译动态 framework 随
+  包分发（FFmpegBuild，约 10.5MB）；整包增量估计 11–15MB，集成
+  后以实测 IPA 为准。只 link `AetherEngine` product；SMB 播放用的
+  `AetherEngineSMB` 没接。
+- **公开 API**（6.89.1 已逐项核对）：`AetherEngine` 类（@MainActor）、
+  `AetherPlayerView` + `bind(view:)` / `unbind(view:)`、`load(url:
+  startPosition:options:)` async（`autoplay` 默认 true，load 成功
+  即开播）、`play()` / `pause()` / `seek(to:)` async / `setRate`
+  （视频最高 2.0）、`volume` 属性（**无 isMuted**，静音 = 音量设 0）、
+  `clock.$currentTime` / `$duration` / `sourceVideoWidth` /
+  `sourceVideoHeight`、`$state`（`.ended` 是终态，重播须重新 load；
+  `.error(String)` 带原因文本）、`$audioTracks` +
+  `selectAudioTrack(index:)`（原声/多音轨切换的能力在这里，不在
+  mpv/AVPlayer）、无内置 UI（宿主自建控制条）。
+- **硬解/软解**：上游根本没有 `hardwareDecoding` /
+  `multichannelAudio` 这两个名字（7.x 与 6.x 两份源码全文 grep 零
+  命中），那是 ReelFlow 自己包的宿主层开关名；上游等价物是
+  `LoadOptions.preferredDecodePath`（`.automatic` 默认走原生
+  AVPlayer 路含 VideoToolbox 硬解 / `.software` 强制软解）+
+  原生失败自动重建成软解一次（7.x 叫 `escalatesToSoftwarePath`，
+  默认 true；6.x 没有这个开关名，升级是内置行为）。桥里永远
+  `.automatic`；硬件加速开关（只对 mpv 生效）在此忽略。6.x 的
+  `traits` 机制不存在（只在 7.x 有），可选组件（TrueHD/DTS:X/
+  双层 DV）的开启方式未核实——v1 不开。
+- **FFmpeg 共存**：引擎以普通外部符号调 `avcodec_*`，链接顺序决
+  定谁应答。HGhub 的 mpv 是 dlopen 的动态 dylib，按上游文档属于
+  “动态，无需处理”的情形；但 dlopen 的符号可见性（RTLD_LOCAL/
+  GLOBAL）与懒绑定文档未覆盖。验证方法：首次 `init` 会打
+  `[FFmpeg] libavcodec …` 日志行（版本不匹配时变 ERROR 并给出
+  `nm -m` / `otool -L` 命令）；真机上以播放结果为准——若
+  AetherEngine 打不开片而 mpv 能开，按上游文档的 nm 方法排查
+  （`nm -m` 看 `_avcodec_open2` 是不是 `from AetherLibavcodec`）。
+- **许可证**：LGPL-3.0 + App Store/DRM 例外（可经商店分发，但源码
+  义务不免除：完整对应源码须保持公开可获取）。注意：142 已
+  vendor 的 libmpv 0.41.0 同样是 GPL，与 KSPlayer 的许可性质相同，
+  不能只卡 KSPlayer 而放过 mpv。
 
 ## 资源下载（播放页，v0.0.33；下载管理 v0.0.34；过期刷新重下 v0.0.35；首页浮层下载 v0.0.36；下载管理进更多菜单 + 导出 + 点播 + SenPlayer 跳转 v0.0.37；独立音频轨合轨 + 下载管理分享按钮 v0.0.38；video_width 回包修复 + 下载管理 SenPlayer 按钮 v0.0.39；下载管理 SenPlayer 直跳 v0.0.41）
 
