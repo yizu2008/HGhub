@@ -201,6 +201,11 @@ final class AetherPlayerEngine: NSObject, NativePlayerEngine {
     }
   }
 
+  // 须标 @MainActor：上游 AetherEngine 类是 @MainActor，clock/duration/
+  // state/sourceVideoWidth/Height 都是主 actor 隔离的属性；poll() 本身
+  // 是非隔离方法时读它们就是编译错（定时器回调已在 Task { @MainActor }
+  // 里调它，但隔离性看的是方法自己的声明，不是调用点）。
+  @MainActor
   private func poll() {
     guard let engine = engine else { return }
     let position = engine.clock.currentTime
