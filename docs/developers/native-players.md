@@ -11,7 +11,7 @@ WebView / HTML5 `<video>` + hls.js 仍是默认播放路径（`src/components/Vi
 ## 架构
 
 ```text
-React（Feed.tsx 更多播放选项菜单里的“原生播放”入口）
+React（Feed.tsx：详情页点选集自动打开 + 更多播放选项菜单里的“原生播放”入口）
   → src/plugins/nativePlayer.ts（invoke 封装 + addPluginListener 事件）
   → Rust 命令 src-tauri/src/native_player.rs
       native_player_open / close / play / pause / seek / set_rate / set_volume / state
@@ -69,9 +69,12 @@ AVPlayer → mpv → 回落 WebView。
 选引擎有两个入口，共用同一个 store（`playbackEngine` /
 `setPlaybackEngine`，与设置页选择器同一套）：设置页“播放”区的
 “播放内核”选择器，和播放页“更多播放选项”菜单里的“播放内核”
-选择行。菜单只在 iOS 显示；选了新引擎不切当前播放，下次点菜单里
-的“原生播放”时才按新引擎打开。播放画面右上角不再放“原生播放”
-pill（v0.0.22 删掉），入口只在更多菜单里。
+选择行。菜单只在 iOS 显示。v0.0.147 起：详情页上所选内核不是
+WebView 时，点选集直接按所选内核开原生（`Feed.tsx` 的自动打开，
+只在详情页生效，首页预览卡片仍内嵌 WebView）；选了新引擎不切
+当前播放，下次选集或点菜单里的“原生播放”时才按新引擎打开。
+播放画面右上角不再放“原生播放”pill（v0.0.22 删掉），手动入口
+只在更多菜单里。
 
 ## 四个引擎
 

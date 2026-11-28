@@ -460,10 +460,12 @@ export default function Feed({media, position, active=true, preparing=false, err
   const onTimeTick=(t:number)=>{ if(!barScrub.current && gesture.current?.mode!=="scrub")setTime(t); onPosition(t,videoRef.current?.el()?.duration); };
   const onDurationTick=(d:number)=>setDuration(d);
 
-  /* 原生播放器（iOS）：只在用户选了非 WebView 引擎时出现。VideoSurface
-     本身不动；原生全屏接管后先暂停 WebView 避免双声，关闭/失败时把
-     最新进度回写并回落 WebView 继续播。引擎存在 store 的 playbackEngine
-     （localStorage hpp.playbackEngine），设置页 ApplicationSettings 已接选择器。 */
+  /* 原生播放器（iOS）：详情页上，所选内核不是 WebView 时，点选集直接开
+     原生（见 openNative 后面的自动打开）；“原生播放”按钮仍在更多播放
+     选项里，可手动再开。VideoSurface 本身不动；原生全屏接管后先暂停
+     WebView 避免双声，关闭/失败时把最新进度回写并回落 WebView 继续播。
+     引擎存在 store 的 playbackEngine（localStorage hpp.playbackEngine），
+     设置页 ApplicationSettings 已接选择器。 */
   const nativePosition = useRef(0);
   const nativeCallbacks = useRef({ onPosition, onEnded });
   nativeCallbacks.current = { onPosition, onEnded };
@@ -559,13 +561,13 @@ export default function Feed({media, position, active=true, preparing=false, err
     ]).then((u) => { if (live) listeners = u; else u.forEach((l) => void l.unregister()); });
     return () => { live = false; listeners.forEach((l) => void l.unregister()); };
   }, []);
-  const openNative = async () => {
+  const openNative = async (startPosition?: number) => {
     if (!media || platform !== "ios") return;
     const chain = playbackEngineFallbackChain(playbackEngine, media.format);
     let lastError = "";
     for (const engine of chain) {
       try {
-        await openNativePlayer({ engine, url: media.url, sessionId: media.sessionId, position: time, rate, volume, muted, title, hardwareAcceleration: mpvHardwareAcceleration });
+        await openNativePlayer({ engine, url: media.url, sessionId: media.sessionId, position: startPosition ?? time, rate, volume, muted, title, hardwareAcceleration: mpvHardwareAcceleration });
         videoRef.current?.pause();
         // 诊断（v0.0.138）：写清到底哪个引擎打开了，免得轮询没输出时分不清
         // 是 mpv 没打开（回落到别的引擎）还是 mpv 打开了但诊断没出来。
@@ -578,6 +580,19 @@ export default function Feed({media, position, active=true, preparing=false, err
     }
     toast(lastError || "原生播放器不可用");
   };
+  /* 点选集直接用所选内核（v0.0.147）：详情页（非首页预览）上，每条新选集
+     一就绪、所选内核不是 webview 时直接开原生；首页预览卡片不受影响，
+     仍内嵌 WebView。原生打不开时 openNative 自己 toast，内嵌继续播；
+     关掉原生后回落内嵌，不会重复触发（同一 playKey 只自动开一次；
+     中途把引擎从 webview 切过来也不追开，当前这集用手动“原生播放”）。 */
+  const autoNativeKeyRef = useRef("");
+  useEffect(() => {
+    if (!media || !active || platform !== "ios" || preview) return;
+    if (autoNativeKeyRef.current === playKey) return;
+    autoNativeKeyRef.current = playKey;
+    if (playbackEngine === "webview") return;
+    void openNative(position);
+  }, [playKey, active, preview, playbackEngine]);
   useEffect(() => () => { stopMpvDiagPoll(); void closeNativePlayer().catch(() => {}); }, []);
   useEffect(()=>{setTime(position);setDuration(0);setErr("");setZoom({scale:1,x:0,y:0,gesturing:false});},[playKey]);
   useEffect(()=>()=>{clearTapTimer();if(activeRef.current){store.setClean(false);store.setFs(false);void setMobileOrientation(false).catch(()=>{});}},[]);
