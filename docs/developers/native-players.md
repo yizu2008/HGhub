@@ -108,8 +108,13 @@ pill（v0.0.22 删掉），入口只在更多菜单里。
   链接库都查过无问题），但实证已足够。所以 mpv 的库不再进主程序：
   27 个 dylib 只拷进 `.app/Frameworks/`（`scripts/build-ios-unsigned.sh`
   在 xcodebuild 之后拷，校验见下），`MPVEngine.swift` 在 open 入口
-  才 dlopen（全路径 `Frameworks/libmpv.2.dylib`，`RTLD_NOW |
-  RTLD_GLOBAL`）并 dlsym 出 18 个 libmpv 函数（12 个核心 + 6 个
+  才 dlopen（全路径 `Frameworks/libmpv.2.dylib`，`RTLD_LAZY |
+  RTLD_GLOBAL`，必须用懒绑定——libbs2b.0.dylib 有个未定义符号
+  `_rpl_malloc`（gnulib 的 malloc 替代），27 个 dylib、UZN、系统
+  库里都没人提供它，正常播放也不会调到 bs2b（只在 FFmpeg 的
+  bs2b 音频滤镜里）；RTLD_NOW 会立即绑定全部符号，v0.0.142 真
+  机 dlopen 直接失败，而 UZN 主程序启动直链 libmpv、dyld 默认懒
+  绑定所以没事）并 dlsym 出 18 个 libmpv 函数（12 个核心 + 6 个
   render API，缺一个就整体失败，报 unavailable、播放链回落
   AVPlayer/WebView）；不 dlclose，进程生命周期内常驻。主程序里没
   有任何 mpv 符号，启动与 126 完全一致。dylib 的 install_name 全是

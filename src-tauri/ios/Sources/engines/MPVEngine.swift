@@ -181,7 +181,13 @@ private func loadMPVAPI() -> (api: MPVAPI?, error: String?) {
   else {
     return (nil, "libmpv.2.dylib 不在包里")
   }
-  guard let handle = dlopen(path, RTLD_NOW | RTLD_GLOBAL) else {
+  // 必须用 RTLD_LAZY，不能用 RTLD_NOW：libbs2b.0.dylib 有个未定义
+  // 符号 _rpl_malloc（gnulib 的 malloc 替代），27 个 dylib、UZN、
+  // 系统库里都没人提供它；正常播放根本不会调到 bs2b 那条路
+  // （只在 FFmpeg 的 bs2b 音频滤镜里）。UZN 是主程序启动时直链
+  // libmpv，dyld 默认懒绑定所以没事；RTLD_NOW 会立即绑定全部
+  // 符号，dlopen 直接失败。改懒绑定后行为与 UZN 一致。
+  guard let handle = dlopen(path, RTLD_LAZY | RTLD_GLOBAL) else {
     let reason = dlerror().map { String(cString: $0) } ?? "未知原因"
     return (nil, "dlopen 失败：\(reason)")
   }
