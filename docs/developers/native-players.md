@@ -21,7 +21,8 @@ React（Feed.tsx：详情页点选集自动打开 + 更多播放选项菜单里�
   → Tauri 移动插件 "native-player"（lib.rs 注册）
   → Swift src-tauri/ios/Sources/NativePlayerPlugin.swift（统一 NativePlayerEngine 协议）
   → src-tauri/ios/Sources/engines/ 下各引擎适配（原生全屏 present，退出时发回事件）
-  → 前端收到 native-player-time / -ended / -error / -closed 后回写进度、回落 WebView
+  → 前端收到 native-player-time / -ended / -error 后回写进度、-error 回落 WebView；
+  -closed（点 × / Done）是退出该集，不再回落 WebView（v0.0.150）
 ```
 
 取流：各引擎都直接播 Rust `media.rs` 给的本地回环地址
@@ -84,6 +85,9 @@ AVPlayer → mpv → AetherEngine → 回落 WebView。AetherEngine 是新接的
 WebView 时，点选集直接按所选内核开原生（`Feed.tsx` 的自动打开，
 只在详情页生效，首页预览卡片仍内嵌 WebView）；选了新引擎不切
 当前播放，下次选集或点菜单里的“原生播放”时才按新引擎打开。
+v0.0.150 起：退出原生（点 × / Done）直接退出该集，不再回落
+WebView 内嵌；选了什么内核就默认用什么内核播，WebView 只在明
+确选了 webview、或原生打不开/播错时才用。
 播放画面右上角不再放“原生播放”pill（v0.0.22 删掉），手动入口
 只在更多菜单里。
 
@@ -328,7 +332,7 @@ pnpm tauri ios init --ci
 bash scripts/build-ios-unsigned.sh 0.0.4
 
 # 5. 真机（TrollStore 或自签名）安装后逐项测：
-#    - 设置 playbackEngine 为 avplayer，播 HLS/MP4，确认全屏、进度、Done 后回落 WebView
+#    - 设置 playbackEngine 为 avplayer，播 HLS/MP4，确认全屏、进度、Done 后直接退出该集（v0.0.150 起不再回落 WebView）
 #    - 播一个 AVPlayer 不支持的格式，确认 auto 链 fallback 到下一个引擎或 WebView
 #    - 再逐个测 MDK / KSPlayer / mpv / AetherEngine（各依赖装好后；
 #      AetherEngine 另加：播 AVPlayer/mpv 打不开的格式、DV 片、控制层
@@ -723,15 +727,18 @@ v0.0.145 之前 mpv 原生是裸全屏：只有画面，没有任何控制（连
   免读回滞后互相抵消）、横滑快进/快退（松手才 seek，拖动中只改指示
   条和进度条）；中央指示条显示亮度/音量百分比或快进目标时间，1 秒
   后收起。
-- 方向：首次拿到分辨率就按它自动横竖屏（只做一次）；旋转按钮读实时
+- 方向：首次拿到分辨率后等 2 秒、画面稳定了再按它自动横竖屏（只做一次）；旋转按钮读实时
   场景方向切到反面（v0.0.23 的教训：不能读缓存），并提示“已切换到
   横屏/竖屏”；横屏时隐藏状态栏、竖屏显示（与 WebView 播放页同规则，
   0.5s 刷新里变了才写）。旋转 API 与 OrientationPlugin.setOrientation
-  同一套（iOS 16+ `requestGeometryUpdate`，iOS 15 KVC 老路）。
+  同一套（iOS 16+ `requestGeometryUpdate`，iOS 15 KVC 老路）。首帧就
+  转会闪退（v0.0.147 电影转横屏后约一两秒闪退；诊断版 v0.0.149 关掉
+  自动转屏后不闪，旋转按钮在画面稳定后转也不闪），所以 v0.0.150 起
+  延后 2 秒再转。
 - 关闭：点 × 先拆播放器、再把 `.closed` 发回插件，前端据此把最新
-  进度回写并回落 WebView（与 AVPlayer 的 Done 同路）；顺序不能反，
-  先发 `.closed` 的话插件会把 engine 置 nil、引擎释放，dismiss 就
-  跑不到了。
+  进度回写后直接退出该集（v0.0.150 起不再回落 WebView，与 AVPlayer
+  的 Done 同路）；顺序不能反，先发 `.closed` 的话插件会把 engine
+  置 nil、引擎释放，dismiss 就跑不到了。
 
 ## mpv 硬件加速开关（v0.0.146）
 

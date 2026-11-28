@@ -814,7 +814,10 @@ final class MPVEngine: NSObject, NativePlayerEngine {
   }
 
   private func makeCArgs(_ command: String, _ args: [String?]) -> [String?] {
-    if args.last == nil {
+    // 只拦“最后一个元素本身就是 nil”；空参数表（如 stop）不拦。
+    // 旧写法 args.last == nil 在空表上也为真，close() 每次都
+    // fatalError——147 点 × 闪退就是它。
+    if let last = args.last, last == nil {
       fatalError("Command do not need a nil suffix")
     }
     var strArgs = args

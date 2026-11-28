@@ -47,6 +47,7 @@ export default function Feed({media, position, active=true, preparing=false, err
  playIntent=0, seekTo, mode="full", onOpenDetail, onOpenDetailFromStart, panels={}, social, onPanelChange, onBack, onNext, onPrevious, onNextEpisode, onPreviousEpisode, queueIndex=0, total=1, previousPreview, nextPreview}: FeedProps) {
   const store=useStore(), {muted,setMuted,volume,setVolume,playbackEngine,setPlaybackEngine,mpvHardwareAcceleration,setMpvHardwareAcceleration,pictureMode,setPictureMode}=store;
   const activeRef = useRef(active); activeRef.current = active;
+  const onBackRef = useRef(onBack); onBackRef.current = onBack;
   const isDesktop=!isMobile, preview=mode==="preview";
   const boxRef=useRef<HTMLDivElement>(null), videoRef=useRef<VideoHandle>(null);
   const lastWheel=useRef(0);
@@ -552,7 +553,12 @@ export default function Feed({media, position, active=true, preparing=false, err
       onNativePlayerClosed((e) => {
         finishMpvDiag();
         if (isLocalNativePlayback()) { clearLocalNativePlayback(); return; }
-        fallbackToWebView(e.position);
+        // 退出原生就是关掉该集（v0.0.150，用户要求）：不再回落 WebView，
+        // 直接走 onBack（详情页是 leavePlayback：退回列表）。进度已由
+        // onPosition 每 5 秒保存，卸载时还会再存一次。
+        nativePosition.current = e.position;
+        setTime(e.position);
+        onBackRef.current?.();
       }),
       // mpv 诊断日志（v0.0.135 起，v0.0.137 起已停用）：136 真机证实 .log
       // 事件到不了前端，诊断改走 state 轮询（见 startMpvDiagPoll）；此监听
@@ -583,8 +589,9 @@ export default function Feed({media, position, active=true, preparing=false, err
   /* 点选集直接用所选内核（v0.0.147）：详情页（非首页预览）上，每条新选集
      一就绪、所选内核不是 webview 时直接开原生；首页预览卡片不受影响，
      仍内嵌 WebView。原生打不开时 openNative 自己 toast，内嵌继续播；
-     关掉原生后回落内嵌，不会重复触发（同一 playKey 只自动开一次；
-     中途把引擎从 webview 切过来也不追开，当前这集用手动“原生播放”）。 */
+     关掉原生后直接退出该集（v0.0.150：不再回落内嵌，点 × 就是关掉这集）；
+     同一 playKey 只自动开一次；中途把引擎从 webview 切过来也不追开，
+     当前这集用手动“原生播放”。 */
   const autoNativeKeyRef = useRef("");
   useEffect(() => {
     if (!media || !active || platform !== "ios" || preview) return;
